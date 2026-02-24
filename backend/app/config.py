@@ -13,11 +13,11 @@ class Settings(BaseSettings):
     REDIS_URL: str = "redis://localhost:6379"
     
     # wewe-rss
-    WEWE_RSS_URL: str
+    WEWE_RSS_URL: str = "http://localhost:4000"  # 改为可选，提供默认值
     WEWE_RSS_AUTH_CODE: str = ""
     
     # OpenAI
-    OPENAI_API_KEY: str
+    OPENAI_API_KEY: str = ""  # 改为可选，默认空字符串
     OPENAI_MODEL: str = "gpt-4-turbo-preview"
     OPENAI_BASE_URL: str = "https://api.openai.com/v1"  # 支持自定义，如 DeepSeek
     
