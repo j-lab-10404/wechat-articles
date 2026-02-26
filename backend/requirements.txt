@@ -21,6 +21,7 @@ requests==2.31.0
 # HTML parsing
 beautifulsoup4==4.12.3
 lxml==5.1.0
+lxml_html_clean==0.4.1
 html2text==2024.2.26
 newspaper3k==0.2.8
 
