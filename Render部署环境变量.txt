@@ -1,0 +1,64 @@
+# ========================================
+# Render 部署环境变量（第一阶段）
+# ========================================
+# 
+# 说明：
+# 1. 先用这些变量部署后端到 Render
+# 2. AI API 配置稍后再添加
+# 3. 在 Render 的 Environment Variables 中逐个添加
+#
+# ========================================
+
+# 数据库配置
+DATABASE_URL=postgresql://neondb_owner:npg_l18hVmetjJNX@ep-small-unit-a1kmmpo7-pooler.ap-southeast-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require
+
+# 应用密钥
+SECRET_KEY=oo!SUq3zLBF9Cwxzs*Cv_DsQQgB@jueC#4M7EyZ8#R_G8yQdu!FCgqxmUEsZ!D1qAyjTxt_Az-%tPwqF9JzF8f0sjXDITp=R@!z#Cfd62ic#WZBFGMRiIbl$Wbpu6kH8
+
+# 前端地址
+CORS_ORIGINS=https://wechat-articles.vercel.app
+
+# 其他配置
+DEBUG=False
+WEWE_RSS_URL=http://localhost:4000
+
+# ========================================
+# AI API 配置（稍后添加）
+# ========================================
+# 部署后端成功后，再在 Render Dashboard 中添加这三个变量：
+# 
+# OPENAI_API_KEY=ms-8878f726-cb94-4f78-aea6-888028d55bde
+# OPENAI_BASE_URL=https://api-inference.modelscope.cn/v1
+# OPENAI_MODEL=moonshotai/Kimi-K2.5
+#
+# ========================================
+
+# ========================================
+# 部署步骤：
+# ========================================
+# 
+# 1. 访问 https://render.com/
+# 2. 用 GitHub 登录
+# 3. 点击 "New +" → "Web Service"
+# 4. 选择 j-lab-10404/wechat-articles 仓库
+# 5. 配置：
+#    Name: wechat-articles-backend
+#    Region: Singapore
+#    Branch: main
+#    Root Directory: backend
+#    Runtime: Docker
+#    Dockerfile Path: docker/backend.Dockerfile
+#    Instance Type: Free
+#    （注意：Dockerfile Path 是 docker/backend.Dockerfile，不需要 ../）
+# 
+# 6. 在 Environment Variables 部分添加上面的 5 个变量：
+#    - DATABASE_URL
+#    - SECRET_KEY
+#    - CORS_ORIGINS
+#    - DEBUG
+#    - WEWE_RSS_URL
+# 
+# 7. 点击 "Create Web Service"
+# 8. 等待部署完成（5-10分钟）
+# 
+# ========================================

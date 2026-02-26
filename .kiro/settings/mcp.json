@@ -1,10 +1,17 @@
 {
   "mcpServers": {
-    "github": {
-      "command": "uvx",
-      "args": ["mcp-server-github"],
+    "render": {
+      "command": "docker",
+      "args": [
+        "run",
+        "-i",
+        "--rm",
+        "-e",
+        "RENDER_API_KEY",
+        "render/mcp-server:latest"
+      ],
       "env": {
-        "GITHUB_PERSONAL_ACCESS_TOKEN": ""
+        "RENDER_API_KEY": "rnd_2R4Sk0IRRegkAULfQW2VuFdroppk"
       },
       "disabled": false,
       "autoApprove": []

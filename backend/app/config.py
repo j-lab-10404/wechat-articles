@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     OPENAI_MODEL: str = "gpt-4-turbo-preview"
     OPENAI_BASE_URL: str = "https://api.openai.com/v1"  # 支持自定义，如 DeepSeek
     
+    # ScraperAPI (optional, for web scraping)
+    SCRAPERAPI_KEY: str = ""  # ScraperAPI key for bypassing anti-scraping
+    
     # Application
     APP_NAME: str = "WeChat Articles Knowledge Base"
     APP_VERSION: str = "1.0.0"

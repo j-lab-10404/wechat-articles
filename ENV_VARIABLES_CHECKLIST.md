@@ -6,7 +6,7 @@
 
 ## 📋 环境变量清单
 
-### 必需的环境变量（6个）
+### 必需的环境变量（7个）
 
 | 变量名 | 说明 | 示例值 | 获取方式 |
 |--------|------|--------|----------|
@@ -16,6 +16,7 @@
 | `OPENAI_MODEL` | AI 模型名称 | `deepseek-chat` | 根据 AI 服务商 |
 | `SECRET_KEY` | 应用密钥 | 随机字符串 | 自己生成 |
 | `CORS_ORIGINS` | 前端地址 | `https://your-app.vercel.app` | 你的 Vercel URL |
+| `SCRAPERAPI_KEY` | 抓取服务密钥 | `xxxxx` | 从 ScraperAPI 获取 |
 
 ### 可选的环境变量（2个）
 
@@ -202,7 +203,47 @@
 
 ---
 
-### 5️⃣ REDIS_URL（可选）
+### 6️⃣ SCRAPERAPI_KEY（抓取服务）
+
+**服务商：ScraperAPI（免费试用）**
+
+**用途：** 绕过微信文章的反爬虫保护
+
+#### 步骤：
+
+1. **注册 ScraperAPI**
+   ```
+   网址：https://www.scraperapi.com/
+   方式：用邮箱注册（或 Google 账号登录）
+   ```
+
+2. **获取免费试用**
+   ```
+   免费额度：5,000 次请求
+   无需信用卡
+   ```
+
+3. **获取 API Key**
+   ```
+   位置：Dashboard → API Key
+   复制：显示的 API Key
+   
+   格式：一串字母数字组合
+   ```
+
+4. **记录下来**
+   ```
+   SCRAPERAPI_KEY=your_scraperapi_key_here
+   ```
+
+**说明：**
+- ScraperAPI 提供代理服务，可以绕过微信的反爬虫机制
+- 免费试用 5,000 次请求，足够测试和小规模使用
+- 如果不配置此项，系统会尝试直接抓取（可能失败）
+
+---
+
+### 7️⃣ REDIS_URL（可选）
 
 **服务商：Upstash（免费）**
 
@@ -239,7 +280,7 @@
 
 ---
 
-### 6️⃣ WEWE_RSS_URL（可选）
+### 8️⃣ WEWE_RSS_URL（可选）
 
 **用途：** 微信公众号 RSS 服务
 
@@ -285,6 +326,31 @@ OPENAI_MODEL=deepseek-chat
 # OPENAI_MODEL=gpt-4-turbo-preview
 
 # ========================================
+# 抓取服务配置
+# ========================================
+SCRAPERAPI_KEY=[填入你的ScraperAPI Key]
+
+# ========================================
+# 应用配置
+# ========================================
+SECRET_KEY=[填入随机生成的密钥]
+CORS_ORIGINS=https://[填入你的Vercel URL]
+DEBUG=False
+
+# ========================================
+# 可选配置
+# ========================================
+REDIS_URL=https://[填入你的Upstash URL]
+WEWE_RSS_URL=http://localhost:4000
+```
+# OPENAI_MODEL=llama-3.1-70b-versatile
+
+# 方案 C：OpenAI（最贵）
+# OPENAI_API_KEY=sk-[填入你的OpenAI API Key]
+# OPENAI_BASE_URL=https://api.openai.com/v1
+# OPENAI_MODEL=gpt-4-turbo-preview
+
+# ========================================
 # 应用配置
 # ========================================
 SECRET_KEY=[填入随机生成的密钥]
@@ -310,6 +376,7 @@ WEWE_RSS_URL=http://localhost:4000
 - [ ] OPENAI_MODEL 已设置
 - [ ] SECRET_KEY 已生成
 - [ ] CORS_ORIGINS 已获取（Vercel URL）
+- [ ] SCRAPERAPI_KEY 已获取（ScraperAPI）
 - [ ] REDIS_URL 已获取（可选）
 
 ---

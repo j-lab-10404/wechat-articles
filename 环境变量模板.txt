@@ -14,19 +14,16 @@
 # ----------------------------------------
 # 从 Neon (https://neon.tech/) 获取
 # 格式：postgresql://user:password@host/database?sslmode=require
-DATABASE_URL=
+DATABASE_URL=postgresql://neondb_owner:npg_l18hVmetjJNX@ep-small-unit-a1kmmpo7-pooler.ap-southeast-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require
 
 
 # ----------------------------------------
 # 2. AI API 配置（必需）
 # ----------------------------------------
-# 从 DeepSeek (https://platform.deepseek.com/) 获取
-# API Key 格式：sk-xxxxxxxx
-OPENAI_API_KEY=
-
-# DeepSeek 的固定配置（不要修改）
-OPENAI_BASE_URL=https://api.deepseek.com/v1
-OPENAI_MODEL=deepseek-chat
+# ModelScope API (Kimi K2.5)
+OPENAI_API_KEY=ms-8878f726-cb94-4f78-aea6-888028d55bde
+OPENAI_BASE_URL=https://api-inference.modelscope.cn/v1
+OPENAI_MODEL=moonshotai/Kimi-K2.5
 
 
 # ----------------------------------------
@@ -34,7 +31,7 @@ OPENAI_MODEL=deepseek-chat
 # ----------------------------------------
 # 从 https://randomkeygen.com/ 生成
 # 选择 "Fort Knox Passwords" 中的任意一个
-SECRET_KEY=
+SECRET_KEY=oo!SUq3zLBF9Cwxzs*Cv_DsQQgB@jueC#4M7EyZ8#R_G8yQdu!FCgqxmUEsZ!D1qAyjTxt_Az-%tPwqF9JzF8f0sjXDITp=R@!z#Cfd62ic#WZBFGMRiIbl$Wbpu6kH8
 
 
 # ----------------------------------------
@@ -42,7 +39,7 @@ SECRET_KEY=
 # ----------------------------------------
 # 你的 Vercel 前端 URL
 # 格式：https://your-app.vercel.app
-CORS_ORIGINS=
+CORS_ORIGINS=https://wechat-articles.vercel.app
 
 
 # ----------------------------------------
