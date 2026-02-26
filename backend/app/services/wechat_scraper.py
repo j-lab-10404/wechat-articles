@@ -4,6 +4,7 @@ import requests
 from bs4 import BeautifulSoup
 from typing import Dict, Optional
 from datetime import datetime
+import time
 
 
 class WeChatScraper:
@@ -11,8 +12,16 @@ class WeChatScraper:
     
     def __init__(self):
         self.headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+            'Cache-Control': 'max-age=0'
         }
+        self.session = requests.Session()
+        self.session.headers.update(self.headers)
     
     def scrape_article(self, url: str) -> Optional[Dict]:
         """
@@ -29,10 +38,22 @@ class WeChatScraper:
             if not self._is_valid_wechat_url(url):
                 raise ValueError("Invalid WeChat article URL")
             
+            # Add delay to avoid rate limiting
+            time.sleep(1)
+            
             # Fetch page
-            response = requests.get(url, headers=self.headers, timeout=10)
+            print(f"Fetching URL: {url}")
+            response = self.session.get(url, timeout=15, allow_redirects=True)
             response.raise_for_status()
             response.encoding = 'utf-8'
+            
+            print(f"Response status: {response.status_code}")
+            print(f"Response length: {len(response.text)}")
+            
+            # Check if blocked
+            if '请在微信客户端打开链接' in response.text or 'weixin://private/setresult/' in response.text:
+                print("Warning: Article may require WeChat client")
+                # Continue anyway, try to extract what we can
             
             # Parse HTML
             soup = BeautifulSoup(response.text, 'html.parser')
@@ -49,10 +70,19 @@ class WeChatScraper:
                 'cover_image': self._extract_cover_image(soup),
             }
             
+            print(f"Extracted title: {article_data['title']}")
+            print(f"Extracted author: {article_data['author']}")
+            print(f"Content length: {len(article_data.get('content_text', ''))}")
+            
             return article_data
             
+        except requests.exceptions.RequestException as e:
+            print(f"Request error: {str(e)}")
+            return None
         except Exception as e:
             print(f"Error scraping article: {str(e)}")
+            import traceback
+            traceback.print_exc()
             return None
     
     def _is_valid_wechat_url(self, url: str) -> bool:
