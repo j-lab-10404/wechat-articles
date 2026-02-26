@@ -184,84 +184,96 @@ async def scrape_wechat_article(
     - **account_id**: Optional account ID to associate with
     - **auto_analyze**: Whether to automatically analyze with AI (default: True)
     """
-    # Scrape article
-    scraper = WeChatScraper()
-    article_data = scraper.scrape_article(request.url)
-    
-    if not article_data:
-        raise HTTPException(status_code=400, detail="Failed to scrape article")
-    
-    # Check if article already exists
-    existing = db.query(Article).filter(Article.url == request.url).first()
-    if existing:
-        raise HTTPException(status_code=400, detail="Article already exists")
-    
-    # Get or create account
-    account_id = request.account_id
-    if not account_id and article_data.get('account_name'):
-        # Try to find existing account by name
-        account = db.query(Account).filter(
-            Account.name == article_data['account_name']
-        ).first()
+    try:
+        # Scrape article
+        scraper = WeChatScraper()
+        article_data = scraper.scrape_article(request.url)
         
-        if not account:
-            # Create new account
-            account = Account(
-                name=article_data['account_name'],
-                account_id=article_data['account_name'].lower().replace(' ', '_'),
-                description=f"Auto-created from article"
-            )
-            db.add(account)
-            db.commit()
-            db.refresh(account)
+        if not article_data:
+            raise HTTPException(status_code=400, detail="Failed to scrape article: No data returned")
         
-        account_id = account.id
-    
-    # Create article
-    db_article = Article(
-        account_id=account_id,
-        title=article_data['title'],
-        content=article_data['content'],
-        content_text=article_data['content_text'],
-        url=article_data['url'],
-        author=article_data.get('author'),
-        cover_image=article_data.get('cover_image'),
-        published_at=article_data.get('published_at'),
-    )
-    
-    db.add(db_article)
-    db.commit()
-    db.refresh(db_article)
-    
-    # Auto analyze if requested
-    if request.auto_analyze:
-        try:
-            ai_service = AIService()
-            analysis_result = await ai_service.analyze_article(
-                db_article.title,
-                db_article.content_text or ""
-            )
+        # Check if article already exists
+        existing = db.query(Article).filter(Article.url == request.url).first()
+        if existing:
+            raise HTTPException(status_code=400, detail="Article already exists")
+        
+        # Get or create account
+        account_id = request.account_id
+        if not account_id and article_data.get('account_name'):
+            # Try to find existing account by name
+            account = db.query(Account).filter(
+                Account.name == article_data['account_name']
+            ).first()
             
-            # Save analysis
-            db_analysis = ArticleAnalysis(
-                article_id=db_article.id,
-                summary=analysis_result.get("summary"),
-                keywords=analysis_result.get("keywords"),
-                entities=analysis_result.get("entities"),
-                category_confidence=analysis_result.get("category_confidence"),
-                paper_info=analysis_result.get("paper_info"),
-                tool_info=analysis_result.get("tool_info"),
-                news_info=analysis_result.get("news_info"),
-            )
+            if not account:
+                # Create new account
+                account = Account(
+                    name=article_data['account_name'],
+                    account_id=article_data['account_name'].lower().replace(' ', '_'),
+                    description=f"Auto-created from article"
+                )
+                db.add(account)
+                db.commit()
+                db.refresh(account)
             
-            # Update article category
-            db_article.category = analysis_result.get("category", "other")
-            
-            db.add(db_analysis)
-            db.commit()
-        except Exception as e:
-            print(f"Auto-analysis failed: {str(e)}")
-            # Continue even if analysis fails
-    
-    db.refresh(db_article)
-    return db_article
+            account_id = account.id
+        
+        # Create article
+        db_article = Article(
+            account_id=account_id,
+            title=article_data['title'],
+            content=article_data['content'],
+            content_text=article_data['content_text'],
+            url=article_data['url'],
+            author=article_data.get('author'),
+            cover_image=article_data.get('cover_image'),
+            published_at=article_data.get('published_at'),
+        )
+        
+        db.add(db_article)
+        db.commit()
+        db.refresh(db_article)
+        
+        # Auto analyze if requested
+        if request.auto_analyze:
+            try:
+                ai_service = AIService()
+                analysis_result = await ai_service.analyze_article(
+                    db_article.title,
+                    db_article.content_text or ""
+                )
+                
+                # Save analysis
+                db_analysis = ArticleAnalysis(
+                    article_id=db_article.id,
+                    summary=analysis_result.get("summary"),
+                    keywords=analysis_result.get("keywords"),
+                    entities=analysis_result.get("entities"),
+                    category_confidence=analysis_result.get("category_confidence"),
+                    paper_info=analysis_result.get("paper_info"),
+                    tool_info=analysis_result.get("tool_info"),
+                    news_info=analysis_result.get("news_info"),
+                )
+                
+                # Update article category
+                db_article.category = analysis_result.get("category", "other")
+                
+                db.add(db_analysis)
+                db.commit()
+            except Exception as e:
+                print(f"Auto-analysis failed: {str(e)}")
+                # Continue even if analysis fails
+        
+        db.refresh(db_article)
+        return db_article
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Scrape endpoint error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Failed to scrape article: {str(e)}"
+        )
