@@ -1,0 +1,49 @@
+version: '3.8'
+
+services:
+  # MySQL 数据库
+  wewe-rss-db:
+    image: mysql:8.3.0
+    container_name: wewe-rss-db
+    environment:
+      MYSQL_ROOT_PASSWORD: 123456
+      MYSQL_DATABASE: wewe-rss
+      TZ: Asia/Shanghai
+    volumes:
+      - wewe_rss_db_data:/var/lib/mysql
+    command: --mysql-native-password=ON
+    networks:
+      - wewe-rss
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # WeWe-RSS 服务
+  wewe-rss-server:
+    image: cooderl/wewe-rss:latest
+    container_name: wewe-rss-server
+    ports:
+      - "4000:4000"
+    environment:
+      DATABASE_URL: mysql://root:123456@wewe-rss-db:3306/wewe-rss?schema=public&connect_timeout=30&pool_timeout=30&socket_timeout=30
+      AUTH_CODE: 123567
+      SERVER_ORIGIN_URL: http://localhost:4000
+      MAX_REQUEST_PER_MINUTE: 60
+      CRON_EXPRESSION: "35 5,17 * * *"
+      # 可选：启用全文模式（会变慢）
+      # FEED_MODE: fulltext
+    depends_on:
+      wewe-rss-db:
+        condition: service_healthy
+    networks:
+      - wewe-rss
+    restart: unless-stopped
+
+networks:
+  wewe-rss:
+    driver: bridge
+
+volumes:
+  wewe_rss_db_data:
