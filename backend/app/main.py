@@ -49,6 +49,21 @@ async def health_check():
     return {"status": "healthy"}
 
 
+@app.get("/debug/config")
+async def debug_config():
+    """Debug endpoint to check configuration (DO NOT use in production)."""
+    return {
+        "scraperapi_configured": bool(settings.SCRAPERAPI_KEY),
+        "scraperapi_key_length": len(settings.SCRAPERAPI_KEY) if settings.SCRAPERAPI_KEY else 0,
+        "scraperapi_key_preview": settings.SCRAPERAPI_KEY[:10] + "..." if settings.SCRAPERAPI_KEY else "NOT SET",
+        "openai_configured": bool(settings.OPENAI_API_KEY),
+        "openai_base_url": settings.OPENAI_BASE_URL,
+        "openai_model": settings.OPENAI_MODEL,
+        "database_configured": bool(settings.DATABASE_URL),
+        "cors_origins": settings.cors_origins_list,
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
