@@ -20,7 +20,20 @@
             <p>这是一个帮助你管理和分析微信公众号文章的智能系统</p>
             
             <el-row :gutter="20" style="margin-top: 30px;">
-              <el-col :span="8">
+              <el-col :span="6">
+                <el-card shadow="hover">
+                  <template #header>
+                    <el-icon><Plus /></el-icon>
+                    <span>添加文章</span>
+                  </template>
+                  <p>粘贴微信文章链接快速添加</p>
+                  <el-button type="primary" @click="$router.push('/articles/add')">
+                    添加文章
+                  </el-button>
+                </el-card>
+              </el-col>
+              
+              <el-col :span="6">
                 <el-card shadow="hover">
                   <template #header>
                     <el-icon><Collection /></el-icon>
@@ -33,7 +46,7 @@
                 </el-card>
               </el-col>
               
-              <el-col :span="8">
+              <el-col :span="6">
                 <el-card shadow="hover">
                   <template #header>
                     <el-icon><Document /></el-icon>
@@ -46,7 +59,7 @@
                 </el-card>
               </el-col>
               
-              <el-col :span="8">
+              <el-col :span="6">
                 <el-card shadow="hover">
                   <template #header>
                     <el-icon><Reading /></el-icon>
