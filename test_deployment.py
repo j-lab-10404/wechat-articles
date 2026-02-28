@@ -60,113 +60,176 @@ def log_request(method, url, params=None, data=None):
     if data:
         print(f"   🔹 数据: {json.dumps(data, ensure_ascii=False, indent=2)[:300]}")
 
-def test_health():
-    """测试健康检查"""
-    try:
-        print("   正在唤醒服务（首次请求可能需要30-60秒）...")
-        response = requests.get(f"{BACKEND_URL}/health", timeout=60)
-        success = response.status_code == 200
-        print_test("健康检查", success, f"状态码: {response.status_code}")
-        return success
-    except Exception as e:
-        print_test("健康检查", False, f"错误: {str(e)}")
-        return False
+# ============================================================================
+# 1. 后端健康检查测试
+# ============================================================================
 
-def test_database_connection():
-    """测试数据库连接"""
+def test_health():
+    """测试后端健康检查"""
     try:
-        response = requests.get(f"{API_BASE}/accounts", timeout=10)
+        url = f"{BACKEND_URL}/health"
+        log_request("GET", url)
+        print("   ⏳ 正在唤醒服务（首次请求可能需要30-60秒）...")
+        
+        response = requests.get(url, timeout=90)
         success = response.status_code == 200
         data = response.json() if success else None
-        print_test("数据库连接", success, 
-                  f"状态码: {response.status_code}, 账号数: {data.get('total', 0) if data else 'N/A'}")
-        return success
+        
+        print_test(
+            "后端健康检查 (/health)", 
+            success, 
+            f"状态码: {response.status_code}",
+            data
+        )
+        return success, data
     except Exception as e:
-        print_test("数据库连接", False, f"错误: {str(e)}")
-        return False
+        print_test("后端健康检查 (/health)", False, f"错误: {str(e)}")
+        return False, None
+
+# ============================================================================
+# 2. 公众号 CRUD 操作测试
+# ============================================================================
+
+def test_get_accounts():
+    """测试获取公众号列表"""
+    try:
+        url = f"{API_BASE}/accounts"
+        log_request("GET", url)
+        
+        response = requests.get(url, timeout=10)
+        success = response.status_code == 200
+        data = response.json() if success else None
+        
+        print_test(
+            "获取公众号列表 (GET /api/accounts)", 
+            success, 
+            f"状态码: {response.status_code}, 总数: {data.get('total', 0) if data else 'N/A'}",
+            data
+        )
+        return success, data
+    except Exception as e:
+        print_test("获取公众号列表", False, f"错误: {str(e)}")
+        return False, None
 
 def test_create_account():
-    """测试创建账号"""
+    """测试创建公众号"""
     try:
         account_data = {
-            "name": "测试公众号",
-            "account_id": "test_account_001",
+            "name": f"测试公众号_{int(time.time())}",
+            "account_id": f"test_account_{int(time.time())}",
             "rss_url": "https://example.com/rss",
-            "description": "这是一个测试账号"
+            "description": "这是一个用于全面测试的公众号账号"
         }
-        response = requests.post(f"{API_BASE}/accounts/", json=account_data, timeout=10)
+        
+        url = f"{API_BASE}/accounts/"
+        log_request("POST", url, data=account_data)
+        
+        response = requests.post(url, json=account_data, timeout=10)
         success = response.status_code == 200
         data = response.json() if success else None
-        print_test("创建账号", success, 
-                  f"状态码: {response.status_code}, ID: {data.get('id') if data else 'N/A'}")
-        return data.get('id') if success and data else None
+        
+        print_test(
+            "创建公众号 (POST /api/accounts/)", 
+            success, 
+            f"状态码: {response.status_code}, ID: {data.get('id') if data else 'N/A'}",
+            data
+        )
+        return success, data
     except Exception as e:
-        print_test("创建账号", False, f"错误: {str(e)}")
-        return None
+        print_test("创建公众号", False, f"错误: {str(e)}")
+        return False, None
+
+def test_update_account(account_id):
+    """测试更新公众号信息"""
+    try:
+        update_data = {
+            "description": f"更新后的描述 - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        }
+        
+        url = f"{API_BASE}/accounts/{account_id}"
+        log_request("PUT", url, data=update_data)
+        
+        response = requests.put(url, json=update_data, timeout=10)
+        success = response.status_code == 200
+        data = response.json() if success else None
+        
+        print_test(
+            "更新公众号信息 (PUT /api/accounts/{id})", 
+            success, 
+            f"状态码: {response.status_code}",
+            data
+        )
+        return success, data
+    except Exception as e:
+        print_test("更新公众号信息", False, f"错误: {str(e)}")
+        return False, None
+
+def test_get_account_detail(account_id):
+    """测试获取公众号详情"""
+    try:
+        url = f"{API_BASE}/accounts/{account_id}"
+        log_request("GET", url)
+        
+        response = requests.get(url, timeout=10)
+        success = response.status_code == 200
+        data = response.json() if success else None
+        
+        print_test(
+            "获取公众号详情 (GET /api/accounts/{id})", 
+            success, 
+            f"状态码: {response.status_code}",
+            data
+        )
+        return success, data
+    except Exception as e:
+        print_test("获取公众号详情", False, f"错误: {str(e)}")
+        return False, None
+
+# ============================================================================
+# 3. 文章 CRUD 操作测试
+# ============================================================================
 
 def test_create_article(account_id):
-    """测试创建文章"""
+    """测试创建文章（包含中文内容）"""
     try:
         article_data = {
             "account_id": account_id,
-            "title": "测试文章：人工智能在医疗领域的应用",
-            "content": "<p>这是一篇关于人工智能在医疗领域应用的测试文章。</p>",
-            "content_text": "这是一篇关于人工智能在医疗领域应用的测试文章。人工智能技术正在revolutionize医疗诊断、药物研发和个性化治疗。深度学习算法可以分析医学影像，帮助医生更准确地诊断疾病。",
-            "url": "https://example.com/article/test-ai-medical",
+            "title": "测试文章：人工智能在医疗健康领域的创新应用",
+            "content": """
+            <h1>人工智能在医疗健康领域的创新应用</h1>
+            <p>人工智能（AI）技术正在深刻改变医疗健康行业的面貌。从疾病诊断到药物研发，从个性化治疗到健康管理，AI的应用无处不在。</p>
+            <h2>主要应用领域</h2>
+            <ul>
+                <li><strong>医学影像分析：</strong>深度学习算法可以快速准确地分析X光、CT、MRI等医学影像，辅助医生诊断。</li>
+                <li><strong>药物研发：</strong>AI可以加速新药发现过程，预测药物分子的有效性和安全性。</li>
+                <li><strong>个性化医疗：</strong>基于患者的基因组数据和病史，AI可以推荐最适合的治疗方案。</li>
+                <li><strong>健康监测：</strong>智能穿戴设备结合AI算法，实现24小时健康监测和预警。</li>
+            </ul>
+            <h2>未来展望</h2>
+            <p>随着技术的不断进步，AI将在精准医疗、远程医疗、医疗机器人等领域发挥更大作用，为人类健康事业做出更大贡献。</p>
+            """,
+            "content_text": """
+            人工智能在医疗健康领域的创新应用
+            
+            人工智能（AI）技术正在深刻改变医疗健康行业的面貌。从疾病诊断到药物研发，从个性化治疗到健康管理，AI的应用无处不在。
+            
+            主要应用领域：
+            1. 医学影像分析：深度学习算法可以快速准确地分析X光、CT、MRI等医学影像，辅助医生诊断。
+            2. 药物研发：AI可以加速新药发现过程，预测药物分子的有效性和安全性。
+            3. 个性化医疗：基于患者的基因组数据和病史，AI可以推荐最适合的治疗方案。
+            4. 健康监测：智能穿戴设备结合AI算法，实现24小时健康监测和预警。
+            
+            未来展望：
+            随着技术的不断进步，AI将在精准医疗、远程医疗、医疗机器人等领域发挥更大作用，为人类健康事业做出更大贡献。
+            """,
+            "url": f"https://example.com/article/ai-healthcare-{int(time.time())}",
             "published_at": datetime.now().isoformat()
         }
-        response = requests.post(f"{API_BASE}/articles/", json=article_data, timeout=10)
-        success = response.status_code == 200
-        data = response.json() if success else None
-        print_test("创建文章", success, 
-                  f"状态码: {response.status_code}, ID: {data.get('id') if data else 'N/A'}")
-        return data.get('id') if success and data else None
-    except Exception as e:
-        print_test("创建文章", False, f"错误: {str(e)}")
-        return None
-
-def test_ai_analysis(article_id):
-    """测试 AI 分析（关键测试）"""
-    try:
-        print("\n🤖 开始测试 AI 分析功能...")
-        response = requests.post(f"{API_BASE}/articles/{article_id}/analyze", timeout=30)
-        success = response.status_code == 200
-        data = response.json() if response.status_code in [200, 400] else None
         
-        if success:
-            print_test("AI 分析", True, 
-                      f"状态码: {response.status_code}, 分析ID: {data.get('analysis_id') if data else 'N/A'}")
-            print(f"   响应: {json.dumps(data, ensure_ascii=False, indent=2)}")
-        else:
-            print_test("AI 分析", False, 
-                      f"状态码: {response.status_code}, 响应: {data if data else response.text}")
-        return success
-    except Exception as e:
-        print_test("AI 分析", False, f"错误: {str(e)}")
-        return False
-
-def test_get_article_with_analysis(article_id):
-    """测试获取文章及其分析"""
-    try:
-        response = requests.get(f"{API_BASE}/articles/{article_id}", timeout=10)
-        success = response.status_code == 200
-        data = response.json() if success else None
+        url = f"{API_BASE}/articles/"
+        log_request("POST", url, data=article_data)
         
-        if success and data:
-            has_analysis = data.get('analysis') is not None
-            category = data.get('category', 'N/A')
-            print_test("获取文章分析", success, 
-                      f"有分析: {has_analysis}, 分类: {category}")
-            if has_analysis:
-                analysis = data.get('analysis', {})
-                print(f"   摘要: {analysis.get('summary', 'N/A')[:100]}...")
-                print(f"   关键词: {analysis.get('keywords', [])}")
-        else:
-            print_test("获取文章分析", False, f"状态码: {response.status_code}")
-        return success
-    except Exception as e:
-        print_test("获取文章分析", False, f"错误: {str(e)}")
-        return False
+        response = requests.post(url, json=article_dat
 
 def main():
     """运行所有测试"""

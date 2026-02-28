@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     REDIS_URL: str = "redis://localhost:6379"
     
     # wewe-rss
-    WEWE_RSS_URL: str = "http://localhost:4000"  # 改为可选，提供默认值
+    WEWE_RSS_URL: str = "https://wewe-rss-production-d5fc.up.railway.app"
     WEWE_RSS_AUTH_CODE: str = ""
     
     # OpenAI
