@@ -29,7 +29,13 @@ app.include_router(knowledge.router, prefix="/api/knowledge", tags=["knowledge"]
 @app.on_event("startup")
 async def startup_event():
     """Initialize database on startup."""
-    init_db()
+    try:
+        init_db()
+        print("✅ Database initialized successfully")
+    except Exception as e:
+        print(f"❌ Database initialization failed: {e}")
+        import traceback
+        traceback.print_exc()
 
 
 @app.get("/")

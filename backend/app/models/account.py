@@ -21,7 +21,7 @@ class Account(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     
     # Relationships
-    articles = relationship("Article", back_populates="account", cascade="all, delete-orphan")
+    articles = relationship("Article", back_populates="account")
     
     def __repr__(self):
         return f"<Account(id={self.id}, name='{self.name}')>"
