@@ -30,4 +30,9 @@ def get_db():
 
 def init_db():
     """Initialize database tables."""
+    import os
+    if os.environ.get("RESET_DB") == "true":
+        print("⚠️  RESET_DB=true: Dropping all tables and recreating...")
+        Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
+    print("✅ Database tables initialized.")
