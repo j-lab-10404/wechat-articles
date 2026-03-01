@@ -1,4 +1,4 @@
-"""RSS service for fetching articles from WeWe-RSS."""
+"""RSS service for fetching articles from WeWe-RSS + direct scraping."""
 import httpx
 import re
 from typing import List, Dict, Optional
@@ -6,9 +6,14 @@ from datetime import datetime
 from urllib.parse import urlparse, parse_qs, urlencode
 from ..config import settings
 
+MOBILE_UA = (
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) "
+    "AppleWebKit/605.1.15 (KHTML, like Gecko) "
+    "Version/16.0 Mobile/15E148 Safari/604.1"
+)
+
 
 class RSSService:
-    """Service for interacting with WeWe-RSS."""
 
     def __init__(self):
         self.base_url = settings.WEWE_RSS_URL.rstrip("/")
@@ -22,7 +27,6 @@ class RSSService:
 
     @staticmethod
     def _html_to_text(html: str) -> str:
-        """Extract plain text from WeChat article HTML."""
         if not html:
             return ""
         try:
@@ -33,159 +37,204 @@ class RSSService:
             div = soup.find(id="js_content")
             if not div:
                 div = soup.find(class_="rich_media_content")
-            text = div.get_text("\n", strip=True) if div else soup.get_text("\n", strip=True)
-            return re.sub(r'\n{3,}', '\n\n', text).strip()
+            if div:
+                return re.sub(r'\n{3,}', '\n\n', div.get_text("\n", strip=True)).strip()
+            return re.sub(r'\n{3,}', '\n\n', soup.get_text("\n", strip=True)).strip()
         except Exception:
             return re.sub(r'\s+', ' ', re.sub(r'<[^>]+>', ' ', html)).strip()
 
     @staticmethod
-    def _get_biz(url: str) -> str:
-        """Extract __biz param from WeChat URL."""
-        try:
-            return parse_qs(urlparse(url).query).get("__biz", [""])[0]
-        except Exception:
-            return ""
+    def _normalize_url(url: str) -> str:
+        parsed = urlparse(url)
+        params = parse_qs(parsed.query)
+        essential = {}
+        for key in ["__biz", "mid", "idx", "sn"]:
+            if key in params:
+                essential[key] = params[key][0]
+        if essential:
+            return f"{parsed.scheme}://{parsed.netloc}{parsed.path}?{urlencode(essential)}"
+        return url.split("#")[0].rstrip("/")
 
     @staticmethod
-    def _normalize_url(url: str) -> str:
-        """Normalize WeChat URL for matching."""
-        if not url:
-            return ""
+    def _parse_date(date_str: str) -> Optional[datetime]:
+        if not date_str:
+            return None
+        for fmt in [
+            "%Y-%m-%dT%H:%M:%S.%fZ",
+            "%Y-%m-%dT%H:%M:%SZ",
+            "%Y-%m-%dT%H:%M:%S",
+            "%Y-%m-%d %H:%M:%S",
+            "%Y-%m-%d",
+        ]:
+            try:
+                return datetime.strptime(date_str, fmt)
+            except ValueError:
+                continue
+        return None
+
+    # ── Direct scraping (primary method) ────────────────────────
+
+    async def _scrape_direct(self, url: str) -> Optional[Dict]:
+        """Scrape WeChat article directly with mobile UA."""
         try:
-            parsed = urlparse(url)
-            params = parse_qs(parsed.query)
-            keep = {}
-            for k in ("__biz", "mid", "idx", "sn"):
-                if k in params:
-                    keep[k] = params[k][0]
-            if keep:
-                return f"{parsed.scheme}://{parsed.netloc}{parsed.path}?{urlencode(keep)}"
-        except Exception:
-            pass
-        return url.split("#")[0]
+            async with httpx.AsyncClient(
+                follow_redirects=True, timeout=20.0
+            ) as client:
+                resp = await client.get(url, headers={"User-Agent": MOBILE_UA})
+                if resp.status_code != 200:
+                    print(f"Direct scrape failed: HTTP {resp.status_code}")
+                    return None
+
+                html = resp.text
+                if len(html) < 500 or "环境异常" in html:
+                    print("Direct scrape: got verification page")
+                    return None
+
+                from bs4 import BeautifulSoup
+                soup = BeautifulSoup(html, "html.parser")
+
+                # Title
+                title = ""
+                title_el = soup.find(id="activity-name")
+                if title_el:
+                    title = title_el.get_text(strip=True)
+                if not title:
+                    og = soup.find("meta", property="og:title")
+                    if og:
+                        title = og.get("content", "")
+
+                # Author
+                author = ""
+                author_el = soup.find(id="js_name")
+                if author_el:
+                    author = author_el.get_text(strip=True)
+
+                # Published date
+                pub_date = None
+                pub_match = re.search(r'var ct\s*=\s*"(\d+)"', html)
+                if pub_match:
+                    try:
+                        pub_date = datetime.fromtimestamp(int(pub_match.group(1)))
+                    except Exception:
+                        pass
+
+                content_text = self._html_to_text(html)
+
+                if not content_text or len(content_text) < 50:
+                    print("Direct scrape: content too short")
+                    return None
+
+                return {
+                    "title": title,
+                    "author": author,
+                    "content_html": html,
+                    "content_text": content_text,
+                    "published_at": pub_date,
+                }
+        except Exception as e:
+            print(f"Direct scrape error: {e}")
+            return None
+
+    # ── WeWe-RSS fallback ───────────────────────────────────────
 
     async def get_feeds(self) -> List[Dict]:
-        """Get subscribed feeds from WeWe-RSS."""
-        async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.get(f"{self.base_url}/feeds")
+        """Get all feeds from WeWe-RSS."""
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(
+                f"{self.base_url}/feeds", headers=self._headers()
+            )
             resp.raise_for_status()
             data = resp.json()
+            # WeWe-RSS returns array directly
             return data if isinstance(data, list) else data.get("data", [])
 
-    async def add_feed(self, mp_url: str) -> Dict:
-        """Subscribe to a feed via article URL."""
-        async with httpx.AsyncClient(timeout=30) as client:
+    async def _search_feed(self, feed_id: str, target_url: str, limit: int = 3) -> Optional[Dict]:
+        """Search a single feed for a matching article URL."""
+        try:
+            async with httpx.AsyncClient(timeout=25.0) as client:
+                resp = await client.get(
+                    f"{self.base_url}/feeds/{feed_id}.json?limit={limit}",
+                    headers=self._headers(),
+                )
+                if resp.status_code != 200:
+                    return None
+                data = resp.json()
+                items = data.get("items", [])
+                norm_target = self._normalize_url(target_url)
+                for item in items:
+                    item_url = item.get("url", "")
+                    if not item_url:
+                        continue
+                    if (norm_target in self._normalize_url(item_url)
+                            or self._normalize_url(item_url) in norm_target
+                            or item_url.rstrip("/") == target_url.rstrip("/")):
+                        content_html = item.get("content_html", "")
+                        content_text = self._html_to_text(content_html)
+                        return {
+                            "title": item.get("title", ""),
+                            "author": item.get("authors", [{}])[0].get("name", "") if item.get("authors") else "",
+                            "content_html": content_html,
+                            "content_text": content_text,
+                            "published_at": self._parse_date(item.get("date_published")),
+                        }
+        except Exception as e:
+            print(f"Feed {feed_id} search error: {e}")
+        return None
+
+    async def _search_wewe_rss(self, url: str) -> Optional[Dict]:
+        """Search all WeWe-RSS feeds for the article (fallback)."""
+        try:
+            feeds = await self.get_feeds()
+            for feed in feeds:
+                feed_id = feed.get("id")
+                if not feed_id:
+                    continue
+                result = await self._search_feed(feed_id, url, limit=5)
+                if result and result.get("content_text"):
+                    return result
+        except Exception as e:
+            print(f"WeWe-RSS search error: {e}")
+        return None
+
+    # ── Public API ──────────────────────────────────────────────
+
+    async def get_article_content(self, url: str) -> Optional[Dict]:
+        """
+        Get article content. Strategy:
+        1. Direct scrape with mobile UA (fast, ~3-6s)
+        2. Fallback to WeWe-RSS feed search (slower, may timeout on Render)
+        """
+        # Primary: direct scraping
+        result = await self._scrape_direct(url)
+        if result and result.get("content_text"):
+            print(f"Got content via direct scrape: {len(result['content_text'])} chars")
+            return result
+
+        # Fallback: WeWe-RSS
+        print("Direct scrape failed, trying WeWe-RSS fallback...")
+        result = await self._search_wewe_rss(url)
+        if result and result.get("content_text"):
+            print(f"Got content via WeWe-RSS: {len(result['content_text'])} chars")
+            return result
+
+        print("All content fetch methods failed")
+        return None
+
+    async def add_feed(self, url: str) -> Dict:
+        """Add a new feed to WeWe-RSS."""
+        async with httpx.AsyncClient(timeout=15.0) as client:
             resp = await client.post(
                 f"{self.base_url}/feeds",
                 headers=self._headers(),
-                json={"url": mp_url},
+                json={"url": url},
             )
             resp.raise_for_status()
             return resp.json()
 
-    async def _find_feed_for_url(self, article_url: str) -> Optional[str]:
-        """Find which feed contains the article by matching __biz."""
-        target_biz = self._get_biz(article_url)
-        if not target_biz:
-            return None
+    async def check_feed_exists(self, mp_name: str) -> Optional[Dict]:
+        """Check if a feed for a given MP account already exists."""
         feeds = await self.get_feeds()
         for feed in feeds:
-            mp_url = feed.get("mpUrl", "") or ""
-            feed_biz = self._get_biz(mp_url)
-            if feed_biz and feed_biz == target_biz:
-                return feed.get("id")
+            if feed.get("mpName") == mp_name or feed.get("title") == mp_name:
+                return feed
         return None
-
-    async def get_article_content(self, article_url: str) -> Optional[Dict]:
-        """
-        Fetch article content from WeWe-RSS.
-        
-        Strategy: find the specific feed first, then search only that feed.
-        This avoids downloading all feeds (each ~3MB per article).
-        """
-        normalized = self._normalize_url(article_url)
-        
-        try:
-            # Step 1: find which feed this article belongs to
-            feed_id = await self._find_feed_for_url(article_url)
-            
-            if feed_id:
-                print(f"[RSS] Found feed {feed_id} for article")
-                result = await self._search_feed(feed_id, article_url, normalized)
-                if result:
-                    return result
-            
-            # Step 2: if not found by biz, search all feeds one by one
-            print("[RSS] Biz match failed, searching all feeds...")
-            feeds = await self.get_feeds()
-            for feed in feeds:
-                fid = feed.get("id", "")
-                if fid and fid != feed_id:  # skip already-searched feed
-                    result = await self._search_feed(fid, article_url, normalized)
-                    if result:
-                        return result
-                        
-        except Exception as e:
-            print(f"[RSS] Error: {e}")
-            import traceback
-            traceback.print_exc()
-        
-        print(f"[RSS] Not found: {article_url[:80]}")
-        return None
-
-    async def _search_feed(self, feed_id: str, target_url: str, target_norm: str) -> Optional[Dict]:
-        """Search a single feed for the target article."""
-        try:
-            url = f"{self.base_url}/feeds/{feed_id}.json?limit=50"
-            async with httpx.AsyncClient(timeout=120) as client:
-                resp = await client.get(url)
-                if resp.status_code != 200:
-                    return None
-                data = resp.json()
-            
-            for item in data.get("items", []):
-                item_url = item.get("url", "")
-                if item_url == target_url or self._normalize_url(item_url) == target_norm:
-                    html = item.get("content_html", "")
-                    text = item.get("content_text", "")
-                    if not text and html:
-                        text = self._html_to_text(html)
-                    
-                    author = item.get("author", "")
-                    if isinstance(author, dict):
-                        author = author.get("name", "")
-                    
-                    print(f"[RSS] Found: {item.get('title','?')}, {len(text)} chars")
-                    return {
-                        "title": item.get("title", ""),
-                        "url": item_url,
-                        "content_html": html,
-                        "content_text": text,
-                        "published_at": self._parse_date(item.get("date_published")),
-                        "author": str(author or ""),
-                    }
-        except Exception as e:
-            print(f"[RSS] Feed {feed_id} error: {e}")
-        return None
-
-    async def check_feed_exists(self, mp_url: str) -> Optional[Dict]:
-        """Check if a feed is already subscribed."""
-        try:
-            feeds = await self.get_feeds()
-            for feed in feeds:
-                if isinstance(feed, dict):
-                    feed_url = feed.get("mpUrl", "") or feed.get("url", "")
-                    if feed_url and self._get_biz(feed_url) == self._get_biz(mp_url):
-                        return feed
-        except Exception as e:
-            print(f"Error checking feed: {e}")
-        return None
-
-    @staticmethod
-    def _parse_date(date_str: Optional[str]) -> Optional[datetime]:
-        if not date_str:
-            return None
-        try:
-            return datetime.fromisoformat(date_str.replace("Z", "+00:00"))
-        except (ValueError, AttributeError):
-            return None
