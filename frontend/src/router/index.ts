@@ -8,11 +8,6 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/Home.vue')
   },
   {
-    path: '/accounts',
-    name: 'Accounts',
-    component: () => import('@/views/Accounts.vue')
-  },
-  {
     path: '/articles',
     name: 'Articles',
     component: () => import('@/views/Articles.vue')
@@ -28,9 +23,14 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/ArticleDetail.vue')
   },
   {
-    path: '/knowledge',
-    name: 'Knowledge',
-    component: () => import('@/views/Knowledge.vue')
+    path: '/papers',
+    name: 'Papers',
+    component: () => import('@/views/Papers.vue')
+  },
+  {
+    path: '/datasets',
+    name: 'Datasets',
+    component: () => import('@/views/Datasets.vue')
   }
 ]
 

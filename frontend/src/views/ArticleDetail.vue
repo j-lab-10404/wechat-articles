@@ -1,100 +1,118 @@
 <template>
-  <div class="article-detail-page">
-    <el-card v-loading="loading">
-      <template #header>
-        <div class="card-header">
-          <el-button @click="$router.back()">
-            <el-icon><ArrowLeft /></el-icon>
-            返回
-          </el-button>
-          <div class="actions">
-            <el-button @click="toggleFavorite">
-              <el-icon><Star /></el-icon>
-              {{ article?.is_favorite ? '取消收藏' : '收藏' }}
-            </el-button>
-            <el-button type="primary" @click="analyzeArticle" :disabled="!!article?.analysis">
-              <el-icon><MagicStick /></el-icon>
-              AI分析
-            </el-button>
-          </div>
-        </div>
+  <div class="article-detail" v-loading="loading">
+    <el-page-header @back="$router.back()" style="margin-bottom:16px">
+      <template #content>{{ article?.title || '文章详情' }}</template>
+      <template #extra>
+        <el-button @click="toggleFavorite" :type="article?.is_favorite ? 'warning' : 'default'">
+          {{ article?.is_favorite ? '★ 已收藏' : '☆ 收藏' }}
+        </el-button>
+        <el-button type="primary" @click="reAnalyze" :loading="analyzing">重新分析</el-button>
       </template>
+    </el-page-header>
 
-      <div v-if="article" class="article-content">
-        <h1 class="article-title">{{ article.title }}</h1>
-        
-        <div class="article-meta">
-          <el-tag>{{ article.account?.name }}</el-tag>
-          <el-tag v-if="article.category" :type="getCategoryType(article.category)">
-            {{ getCategoryLabel(article.category) }}
+    <template v-if="article">
+      <!-- 基本信息 -->
+      <el-card style="margin-bottom:16px">
+        <div class="meta-row">
+          <el-tag v-if="article.article_type" :type="typeColor(article.article_type)">
+            {{ typeLabel(article.article_type) }}
           </el-tag>
-          <span class="meta-item">
-            <el-icon><Clock /></el-icon>
-            {{ formatDate(article.published_at) }}
-          </span>
-          <a v-if="article.url" :href="article.url" target="_blank" class="meta-item">
-            <el-icon><Link /></el-icon>
-            原文链接
-          </a>
+          <span v-if="article.author" style="color:#606266">{{ article.author }}</span>
+          <span style="color:#909399">{{ formatDate(article.published_at) }}</span>
+          <a v-if="article.url" :href="article.url" target="_blank" style="color:#409eff;text-decoration:none">原文链接 ↗</a>
         </div>
 
-        <!-- AI 分析结果 -->
-        <el-card v-if="article.analysis" class="analysis-card" shadow="never">
-          <template #header>
-            <div class="analysis-header">
-              <el-icon><MagicStick /></el-icon>
-              <span>AI 分析结果</span>
-            </div>
+        <!-- 摘要 -->
+        <div v-if="article.summary" style="margin-top:12px;padding:12px;background:#f5f7fa;border-radius:6px;line-height:1.8">
+          {{ article.summary }}
+        </div>
+
+        <!-- 标签 -->
+        <div v-if="article.labels?.length" style="margin-top:12px">
+          <span style="color:#909399;font-size:13px;margin-right:8px">标签：</span>
+          <el-tag v-for="l in article.labels" :key="l" closable size="small" style="margin:2px"
+            @close="removeLabel(l)">{{ l }}</el-tag>
+          <el-button size="small" @click="showAddLabel = true" style="margin-left:4px">+ 添加</el-button>
+        </div>
+        <div v-else style="margin-top:8px">
+          <el-button size="small" @click="showAddLabel = true">+ 添加标签</el-button>
+        </div>
+
+        <!-- 添加标签弹窗 -->
+        <el-dialog v-model="showAddLabel" title="添加标签" width="360px">
+          <el-input v-model="newLabel" placeholder="输入标签名" @keyup.enter="addLabel" />
+          <template #footer>
+            <el-button @click="showAddLabel = false">取消</el-button>
+            <el-button type="primary" @click="addLabel">添加</el-button>
           </template>
-          
-          <div class="analysis-content">
-            <div v-if="article.analysis.summary" class="analysis-section">
-              <h3>摘要</h3>
-              <p>{{ article.analysis.summary }}</p>
-            </div>
+        </el-dialog>
 
-            <div v-if="article.analysis.keywords && article.analysis.keywords.length" class="analysis-section">
-              <h3>关键词</h3>
-              <div class="keywords">
-                <el-tag v-for="keyword in article.analysis.keywords" :key="keyword" type="info">
-                  {{ keyword }}
-                </el-tag>
-              </div>
-            </div>
+        <!-- 关键词 -->
+        <div v-if="article.keywords?.length" style="margin-top:8px">
+          <span style="color:#909399;font-size:13px;margin-right:8px">关键词：</span>
+          <el-tag v-for="k in article.keywords" :key="k" type="info" size="small" style="margin:2px">{{ k }}</el-tag>
+        </div>
+      </el-card>
 
-            <div v-if="article.analysis.entities && article.analysis.entities.length" class="analysis-section">
-              <h3>实体识别</h3>
-              <div class="entities">
-                <el-tag v-for="entity in article.analysis.entities" :key="entity" type="success">
-                  {{ entity }}
-                </el-tag>
-              </div>
-            </div>
-
-            <div v-if="article.analysis.paper_info" class="analysis-section">
-              <h3>论文信息</h3>
-              <el-descriptions :column="2" border>
-                <el-descriptions-item v-for="(value, key) in article.analysis.paper_info" :key="key" :label="key">
-                  {{ value }}
-                </el-descriptions-item>
-              </el-descriptions>
-            </div>
-
-            <div v-if="article.analysis.tool_info" class="analysis-section">
-              <h3>工具信息</h3>
-              <el-descriptions :column="2" border>
-                <el-descriptions-item v-for="(value, key) in article.analysis.tool_info" :key="key" :label="key">
-                  {{ value }}
-                </el-descriptions-item>
-              </el-descriptions>
-            </div>
+      <!-- 论文信息 -->
+      <el-card v-if="article.papers?.length" style="margin-bottom:16px">
+        <template #header><span>📄 相关论文 ({{ article.papers.length }})</span></template>
+        <div v-for="(p, i) in article.papers" :key="i" class="paper-item">
+          <h4>{{ p.title }}</h4>
+          <p v-if="p.title_cn" style="color:#606266">{{ p.title_cn }}</p>
+          <div class="paper-meta">
+            <span v-if="p.authors?.length">{{ p.authors.join(', ') }}</span>
+            <span v-if="p.journal">{{ p.journal }}</span>
+            <span v-if="p.year">{{ p.year }}</span>
           </div>
-        </el-card>
+          <p v-if="p.main_findings" style="margin-top:6px;color:#606266;line-height:1.6">{{ p.main_findings }}</p>
+          <div style="margin-top:6px">
+            <el-link v-if="p.doi" :href="`https://doi.org/${p.doi}`" target="_blank" type="primary" style="margin-right:12px">
+              DOI: {{ p.doi }}
+            </el-link>
+            <el-link v-if="p.arxiv_id" :href="`https://arxiv.org/abs/${p.arxiv_id}`" target="_blank" type="primary" style="margin-right:12px">
+              arXiv: {{ p.arxiv_id }}
+            </el-link>
+            <el-link v-if="p.pdf_url" :href="p.pdf_url" target="_blank" type="success">
+              📥 PDF
+            </el-link>
+          </div>
+          <el-divider v-if="i < article.papers.length - 1" />
+        </div>
+      </el-card>
 
-        <!-- 文章正文 -->
-        <div class="article-body" v-html="article.content"></div>
-      </div>
-    </el-card>
+      <!-- 数据集信息 -->
+      <el-card v-if="article.datasets?.length" style="margin-bottom:16px">
+        <template #header><span>📊 相关数据集 ({{ article.datasets.length }})</span></template>
+        <div v-for="(d, i) in article.datasets" :key="i" class="dataset-item">
+          <h4>{{ d.name }}</h4>
+          <p v-if="d.description" style="color:#606266;line-height:1.6">{{ d.description }}</p>
+          <div class="dataset-meta">
+            <el-tag v-if="d.data_type" size="small">{{ d.data_type }}</el-tag>
+            <el-tag v-if="d.domain" size="small" type="success">{{ d.domain }}</el-tag>
+            <span v-if="d.scale" style="color:#909399">规模: {{ d.scale }}</span>
+          </div>
+          <div v-if="d.access_method" style="margin-top:6px">
+            <span style="color:#909399;font-size:13px">获取方式：</span>{{ d.access_method }}
+          </div>
+          <div v-if="d.tutorial" style="margin-top:6px;padding:8px;background:#f5f7fa;border-radius:4px;white-space:pre-wrap;font-size:13px">
+            {{ d.tutorial }}
+          </div>
+          <el-link v-if="d.download_url" :href="d.download_url" target="_blank" type="primary" style="margin-top:6px">
+            📥 下载链接
+          </el-link>
+          <el-divider v-if="i < article.datasets.length - 1" />
+        </div>
+      </el-card>
+
+      <!-- 文章正文 -->
+      <el-card>
+        <template #header><span>📖 文章正文</span></template>
+        <div v-if="article.content" class="article-body" v-html="article.content"></div>
+        <div v-else-if="article.content_text" class="article-body" style="white-space:pre-wrap">{{ article.content_text }}</div>
+        <el-empty v-else description="暂无正文内容" />
+      </el-card>
+    </template>
   </div>
 </template>
 
@@ -102,21 +120,34 @@
 import { ref, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { ArrowLeft, Star, MagicStick, Clock, Link } from '@element-plus/icons-vue'
-import api from '../api/client'
+import client from '../api/client'
 
 const route = useRoute()
 const loading = ref(false)
+const analyzing = ref(false)
 const article = ref<any>(null)
+const showAddLabel = ref(false)
+const newLabel = ref('')
+
+const typeLabel = (t: string) => ({
+  paper_review: '论文解读', dataset: '数据集', tool: '工具',
+  tutorial: '教程', news: '资讯', other: '其他'
+}[t] || t)
+
+const typeColor = (t: string) => ({
+  paper_review: 'danger', dataset: 'warning', tool: '',
+  tutorial: 'success', news: 'info', other: 'info'
+}[t] || 'info')
+
+const formatDate = (d: string) => d ? new Date(d).toLocaleDateString('zh-CN') : ''
 
 const loadArticle = async () => {
   loading.value = true
   try {
-    const response = await api.get(`/articles/${route.params.id}`)
-    article.value = response.data
-  } catch (error) {
-    ElMessage.error('加载文章失败')
-    console.error(error)
+    const resp = await client.get(`/articles/${route.params.id}`)
+    article.value = resp.data
+  } catch (e) {
+    ElMessage.error('加载失败')
   } finally {
     loading.value = false
   }
@@ -124,169 +155,52 @@ const loadArticle = async () => {
 
 const toggleFavorite = async () => {
   try {
-    await api.post(`/articles/${article.value.id}/favorite`)
+    await client.post(`/articles/${article.value.id}/favorite`)
     article.value.is_favorite = !article.value.is_favorite
-    ElMessage.success(article.value.is_favorite ? '已收藏' : '已取消收藏')
-  } catch (error) {
-    ElMessage.error('操作失败')
-    console.error(error)
-  }
+  } catch (e) { ElMessage.error('操作失败') }
 }
 
-const analyzeArticle = async () => {
+const reAnalyze = async () => {
+  analyzing.value = true
   try {
-    loading.value = true
-    await api.post(`/articles/${article.value.id}/analyze`)
-    ElMessage.success('AI分析已完成')
+    await client.post(`/articles/${article.value.id}/analyze`)
+    ElMessage.success('分析完成')
     loadArticle()
-  } catch (error) {
-    ElMessage.error('AI分析失败')
-    console.error(error)
+  } catch (e: any) {
+    ElMessage.error(e.response?.data?.detail || '分析失败')
   } finally {
-    loading.value = false
+    analyzing.value = false
   }
 }
 
-const getCategoryType = (category: string) => {
-  const types: Record<string, string> = {
-    paper: 'danger',
-    tool: 'warning',
-    news: 'success',
-    other: 'info'
-  }
-  return types[category] || 'info'
+const addLabel = async () => {
+  if (!newLabel.value.trim()) return
+  try {
+    const resp = await client.post(`/articles/${article.value.id}/labels/add`, null, {
+      params: { label: newLabel.value.trim() }
+    })
+    article.value.labels = resp.data.labels
+    newLabel.value = ''
+    showAddLabel.value = false
+  } catch (e) { ElMessage.error('添加失败') }
 }
 
-const getCategoryLabel = (category: string) => {
-  const labels: Record<string, string> = {
-    paper: '论文',
-    tool: '工具',
-    news: '新闻',
-    other: '其他'
-  }
-  return labels[category] || '其他'
+const removeLabel = async (label: string) => {
+  try {
+    const resp = await client.delete(`/articles/${article.value.id}/labels/${encodeURIComponent(label)}`)
+    article.value.labels = resp.data.labels
+  } catch (e) { ElMessage.error('删除失败') }
 }
 
-const formatDate = (dateStr: string) => {
-  if (!dateStr) return '-'
-  const date = new Date(dateStr)
-  return date.toLocaleString('zh-CN')
-}
-
-onMounted(() => {
-  loadArticle()
-})
+onMounted(loadArticle)
 </script>
 
 <style scoped>
-.article-detail-page {
-  padding: 20px;
-  max-width: 1200px;
-  margin: 0 auto;
-}
-
-.card-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.actions {
-  display: flex;
-  gap: 10px;
-}
-
-.article-content {
-  padding: 20px 0;
-}
-
-.article-title {
-  font-size: 28px;
-  font-weight: bold;
-  margin-bottom: 20px;
-  line-height: 1.4;
-}
-
-.article-meta {
-  display: flex;
-  align-items: center;
-  gap: 15px;
-  margin-bottom: 30px;
-  padding-bottom: 20px;
-  border-bottom: 1px solid #eee;
-}
-
-.meta-item {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  color: #666;
-  text-decoration: none;
-}
-
-.meta-item:hover {
-  color: #409eff;
-}
-
-.analysis-card {
-  margin-bottom: 30px;
-  background: #f5f7fa;
-}
-
-.analysis-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-weight: bold;
-}
-
-.analysis-content {
-  padding: 10px 0;
-}
-
-.analysis-section {
-  margin-bottom: 20px;
-}
-
-.analysis-section h3 {
-  font-size: 16px;
-  font-weight: bold;
-  margin-bottom: 10px;
-  color: #303133;
-}
-
-.analysis-section p {
-  line-height: 1.8;
-  color: #606266;
-}
-
-.keywords,
-.entities {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.article-body {
-  line-height: 1.8;
-  font-size: 16px;
-  color: #303133;
-}
-
-.article-body :deep(img) {
-  max-width: 100%;
-  height: auto;
-  margin: 20px 0;
-}
-
-.article-body :deep(p) {
-  margin-bottom: 15px;
-}
-
-.article-body :deep(h1),
-.article-body :deep(h2),
-.article-body :deep(h3) {
-  margin-top: 30px;
-  margin-bottom: 15px;
-}
+.article-detail { max-width: 900px; margin: 0 auto; }
+.meta-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.paper-item, .dataset-item { padding: 8px 0; }
+.paper-item h4, .dataset-item h4 { margin: 0 0 4px 0; font-size: 15px; }
+.paper-meta, .dataset-meta { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; color: #909399; font-size: 13px; margin-top: 4px; }
+.article-body { line-height: 1.8; font-size: 15px; }
+.article-body :deep(img) { max-width: 100%; height: auto; margin: 12px 0; }
 </style>

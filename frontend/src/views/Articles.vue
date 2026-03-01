@@ -5,80 +5,73 @@
         <div class="card-header">
           <span>文章列表</span>
           <div class="filters">
-            <el-select v-model="filters.account_id" placeholder="选择公众号" clearable style="width: 200px; margin-right: 10px">
-              <el-option
-                v-for="account in accounts"
-                :key="account.id"
-                :label="account.name"
-                :value="account.id"
-              />
-            </el-select>
-            <el-select v-model="filters.category" placeholder="选择分类" clearable style="width: 150px; margin-right: 10px">
-              <el-option label="学术论文" value="paper" />
-              <el-option label="工具软件" value="tool" />
-              <el-option label="新闻资讯" value="news" />
+            <el-select v-model="filters.article_type" placeholder="文章类型" clearable style="width:130px;margin-right:8px">
+              <el-option label="论文解读" value="paper_review" />
+              <el-option label="数据集" value="dataset" />
+              <el-option label="工具" value="tool" />
+              <el-option label="教程" value="tutorial" />
+              <el-option label="资讯" value="news" />
               <el-option label="其他" value="other" />
             </el-select>
+            <el-select v-model="filters.label" placeholder="标签筛选" clearable filterable style="width:160px;margin-right:8px">
+              <el-option v-for="l in allLabels" :key="l.label" :label="`${l.label} (${l.count})`" :value="l.label" />
+            </el-select>
+            <el-input v-model="searchQuery" placeholder="搜索..." clearable style="width:200px;margin-right:8px"
+              @keyup.enter="doSearch" />
             <el-button type="primary" @click="loadArticles">查询</el-button>
           </div>
         </div>
       </template>
 
-      <el-table :data="articles" v-loading="loading" style="width: 100%" @row-click="viewArticle">
-        <el-table-column prop="title" label="标题" min-width="300">
+      <el-table :data="articles" v-loading="loading" @row-click="viewArticle" style="cursor:pointer">
+        <el-table-column prop="title" label="标题" min-width="280" show-overflow-tooltip>
           <template #default="{ row }">
-            <div class="article-title">
-              <el-icon v-if="row.is_favorite" color="#f56c6c"><Star /></el-icon>
+            <span>
+              <el-icon v-if="row.is_favorite" color="#f56c6c" style="vertical-align:middle"><Star /></el-icon>
               {{ row.title }}
-            </div>
+            </span>
           </template>
         </el-table-column>
-        <el-table-column prop="account.name" label="公众号" width="150" />
-        <el-table-column label="分类" width="100" align="center">
+        <el-table-column label="类型" width="100" align="center">
           <template #default="{ row }">
-            <el-tag v-if="row.category" :type="getCategoryType(row.category)">
-              {{ getCategoryLabel(row.category) }}
+            <el-tag v-if="row.article_type" size="small" :type="typeColor(row.article_type)">
+              {{ typeLabel(row.article_type) }}
             </el-tag>
-            <span v-else>-</span>
           </template>
         </el-table-column>
-        <el-table-column label="AI分析" width="100" align="center">
+        <el-table-column label="标签" min-width="200">
           <template #default="{ row }">
-            <el-tag v-if="row.analysis" type="success">已分析</el-tag>
-            <el-tag v-else type="info">未分析</el-tag>
+            <el-tag v-for="l in (row.labels || []).slice(0, 4)" :key="l" size="small" style="margin:2px">{{ l }}</el-tag>
+            <span v-if="(row.labels || []).length > 4" style="color:#909399;font-size:12px">
+              +{{ row.labels.length - 4 }}
+            </span>
           </template>
         </el-table-column>
-        <el-table-column prop="published_at" label="发布时间" width="180">
+        <el-table-column prop="author" label="来源" width="120" show-overflow-tooltip />
+        <el-table-column label="时间" width="110">
           <template #default="{ row }">
-            {{ formatDate(row.published_at) }}
+            {{ formatDate(row.published_at || row.created_at) }}
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="200" align="center">
+        <el-table-column label="操作" width="160" align="center">
           <template #default="{ row }">
             <el-button size="small" @click.stop="toggleFavorite(row)">
               {{ row.is_favorite ? '取消收藏' : '收藏' }}
             </el-button>
-            <el-button
-              size="small"
-              type="primary"
-              @click.stop="analyzeArticle(row)"
-              :disabled="!!row.analysis"
-            >
-              AI分析
-            </el-button>
+            <el-button size="small" type="danger" @click.stop="deleteArticle(row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
 
       <el-pagination
-        v-model:current-page="pagination.page"
-        v-model:page-size="pagination.pageSize"
-        :total="pagination.total"
-        :page-sizes="[10, 20, 50, 100]"
-        layout="total, sizes, prev, pager, next, jumper"
+        v-model:current-page="page"
+        v-model:page-size="pageSize"
+        :total="total"
+        :page-sizes="[10, 20, 50]"
+        layout="total, sizes, prev, pager, next"
         @size-change="loadArticles"
         @current-change="loadArticles"
-        style="margin-top: 20px; justify-content: center"
+        style="margin-top:16px;justify-content:center"
       />
     </el-card>
   </div>
@@ -87,155 +80,98 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { Star } from '@element-plus/icons-vue'
-import api from '../api/client'
-
-interface Article {
-  id: number
-  title: string
-  category?: string
-  is_favorite: boolean
-  published_at: string
-  analysis?: any
-  account: {
-    name: string
-  }
-}
+import client from '../api/client'
 
 const router = useRouter()
 const loading = ref(false)
-const articles = ref<Article[]>([])
-const accounts = ref<any[]>([])
-const filters = ref({
-  account_id: undefined,
-  category: undefined
-})
-const pagination = ref({
-  page: 1,
-  pageSize: 20,
-  total: 0
-})
+const articles = ref<any[]>([])
+const allLabels = ref<any[]>([])
+const total = ref(0)
+const page = ref(1)
+const pageSize = ref(20)
+const searchQuery = ref('')
+const filters = ref({ article_type: undefined as string | undefined, label: undefined as string | undefined })
 
-const loadAccounts = async () => {
-  try {
-    const response = await api.get('/accounts')
-    accounts.value = response.data.items
-  } catch (error) {
-    console.error('加载公众号列表失败', error)
-  }
-}
+const typeLabel = (t: string) => ({
+  paper_review: '论文解读', dataset: '数据集', tool: '工具',
+  tutorial: '教程', news: '资讯', other: '其他'
+}[t] || t)
+
+const typeColor = (t: string) => ({
+  paper_review: 'danger', dataset: 'warning', tool: '',
+  tutorial: 'success', news: 'info', other: 'info'
+}[t] || 'info')
 
 const loadArticles = async () => {
   loading.value = true
   try {
     const params: any = {
-      skip: (pagination.value.page - 1) * pagination.value.pageSize,
-      limit: pagination.value.pageSize
+      skip: (page.value - 1) * pageSize.value,
+      limit: pageSize.value
     }
-    if (filters.value.account_id) params.account_id = filters.value.account_id
-    if (filters.value.category) params.category = filters.value.category
+    if (filters.value.article_type) params.article_type = filters.value.article_type
+    if (filters.value.label) params.label = filters.value.label
 
-    const response = await api.get('/articles', { params })
-    articles.value = response.data.items
-    pagination.value.total = response.data.total
-  } catch (error) {
-    ElMessage.error('加载文章列表失败')
-    console.error(error)
+    const resp = await client.get('/articles/', { params })
+    articles.value = resp.data.items || []
+    total.value = resp.data.total || 0
+  } catch (e) {
+    ElMessage.error('加载失败')
   } finally {
     loading.value = false
   }
 }
 
-const viewArticle = (row: Article) => {
-  router.push(`/articles/${row.id}`)
-}
-
-const toggleFavorite = async (article: Article) => {
+const doSearch = async () => {
+  if (!searchQuery.value.trim()) { loadArticles(); return }
+  loading.value = true
   try {
-    await api.post(`/articles/${article.id}/favorite`)
-    article.is_favorite = !article.is_favorite
-    ElMessage.success(article.is_favorite ? '已收藏' : '已取消收藏')
-  } catch (error) {
-    ElMessage.error('操作失败')
-    console.error(error)
+    const resp = await client.get('/articles/search/', { params: { q: searchQuery.value, limit: pageSize.value } })
+    articles.value = resp.data.items || []
+    total.value = resp.data.total || 0
+  } catch (e) {
+    ElMessage.error('搜索失败')
+  } finally {
+    loading.value = false
   }
 }
 
-const analyzeArticle = async (article: Article) => {
+const loadLabels = async () => {
   try {
-    loading.value = true
-    await api.post(`/articles/${article.id}/analyze`)
-    ElMessage.success('AI分析已完成')
+    const resp = await client.get('/articles/labels')
+    allLabels.value = resp.data || []
+  } catch (e) { /* ignore */ }
+}
+
+const viewArticle = (row: any) => router.push(`/articles/${row.id}`)
+
+const toggleFavorite = async (row: any) => {
+  try {
+    await client.post(`/articles/${row.id}/favorite`)
+    row.is_favorite = !row.is_favorite
+  } catch (e) { ElMessage.error('操作失败') }
+}
+
+const deleteArticle = async (row: any) => {
+  try {
+    await ElMessageBox.confirm(`确定删除「${row.title}」？`, '确认')
+    await client.delete(`/articles/${row.id}`)
+    ElMessage.success('已删除')
     loadArticles()
-  } catch (error) {
-    ElMessage.error('AI分析失败')
-    console.error(error)
-  } finally {
-    loading.value = false
-  }
+  } catch (e) { /* cancelled or error */ }
 }
 
-const getCategoryType = (category: string) => {
-  const types: Record<string, string> = {
-    paper: 'danger',
-    tool: 'warning',
-    news: 'success',
-    other: 'info'
-  }
-  return types[category] || 'info'
+const formatDate = (d: string) => {
+  if (!d) return '-'
+  return new Date(d).toLocaleDateString('zh-CN')
 }
 
-const getCategoryLabel = (category: string) => {
-  const labels: Record<string, string> = {
-    paper: '论文',
-    tool: '工具',
-    news: '新闻',
-    other: '其他'
-  }
-  return labels[category] || '其他'
-}
-
-const formatDate = (dateStr: string) => {
-  if (!dateStr) return '-'
-  const date = new Date(dateStr)
-  return date.toLocaleString('zh-CN')
-}
-
-onMounted(() => {
-  loadAccounts()
-  loadArticles()
-})
+onMounted(() => { loadArticles(); loadLabels() })
 </script>
 
 <style scoped>
-.articles-page {
-  padding: 20px;
-}
-
-.card-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.filters {
-  display: flex;
-  align-items: center;
-}
-
-.article-title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  cursor: pointer;
-}
-
-.article-title:hover {
-  color: #409eff;
-}
-
-:deep(.el-table__row) {
-  cursor: pointer;
-}
+.card-header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
+.filters { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; }
 </style>

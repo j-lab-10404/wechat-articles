@@ -115,12 +115,15 @@ async def add_article(request: AddArticleRequest, db: Session = Depends(get_db))
         # 尝试添加订阅
         try:
             await rss.add_feed(url)
-            # 等一下再试
             import asyncio
-            await asyncio.sleep(3)
+            await asyncio.sleep(5)
             article_data = await rss.get_article_content(url)
         except Exception as e:
             print(f"Auto-subscribe failed: {e}")
+
+    # 如果仍然没有纯文本但有 HTML，尝试提取
+    if article_data and not article_data.get("content_text") and article_data.get("content_html"):
+        article_data["content_text"] = RSSService._html_to_text(article_data["content_html"])
 
     # 3. 保存文章
     title = (article_data or {}).get("title", "未知标题")

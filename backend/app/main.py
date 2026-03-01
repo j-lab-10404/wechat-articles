@@ -3,7 +3,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .config import settings
 from .database import init_db
-from .api import accounts, articles, knowledge
+from .api import accounts, articles, knowledge, papers, datasets
 
 app = FastAPI(
     title=settings.APP_NAME,
@@ -23,6 +23,8 @@ app.add_middleware(
 # Routers
 app.include_router(accounts.router, prefix="/api/accounts", tags=["accounts"])
 app.include_router(articles.router, prefix="/api/articles", tags=["articles"])
+app.include_router(papers.router, prefix="/api/papers", tags=["papers"])
+app.include_router(datasets.router, prefix="/api/datasets", tags=["datasets"])
 app.include_router(knowledge.router, prefix="/api/knowledge", tags=["knowledge"])
 
 

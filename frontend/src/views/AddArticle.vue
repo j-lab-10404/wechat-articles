@@ -1,11 +1,11 @@
 <template>
-  <div class="add-article-container">
-    <el-card class="add-article-card">
+  <div class="add-article">
+    <el-card>
       <template #header>
-        <div class="card-header">
-          <h2>📝 添加微信文章</h2>
-          <p class="subtitle">粘贴微信公众号文章链接，自动抓取并分析</p>
-        </div>
+        <h2>📝 添加微信文章</h2>
+        <p style="color:#909399;font-size:13px;margin-top:4px">
+          粘贴微信公众号文章链接，自动从 WeWe-RSS 获取全文并 AI 分析
+        </p>
       </template>
 
       <el-form :model="form" :rules="rules" ref="formRef" label-width="100px">
@@ -15,341 +15,141 @@
             placeholder="https://mp.weixin.qq.com/s/..."
             clearable
             :disabled="loading"
-          >
-            <template #prepend>
-              <el-icon><Link /></el-icon>
-            </template>
-          </el-input>
-          <div class="form-tip">
-            支持微信公众号文章链接（mp.weixin.qq.com）
-          </div>
+          />
         </el-form-item>
 
         <el-form-item label="自动分析">
-          <el-switch
-            v-model="form.autoAnalyze"
-            active-text="开启 AI 分析"
-            inactive-text="稍后分析"
-            :disabled="loading"
-          />
-          <div class="form-tip">
-            开启后将自动使用 AI 分析文章内容、提取关键词和分类
-          </div>
+          <el-switch v-model="form.autoAnalyze" :disabled="loading" />
+          <span style="margin-left:8px;color:#909399;font-size:12px">
+            AI 自动分类、提取标签、论文和数据集信息
+          </span>
         </el-form-item>
 
         <el-form-item>
-          <el-button
-            type="primary"
-            @click="handleSubmit"
-            :loading="loading"
-            size="large"
-          >
-            <el-icon v-if="!loading"><Plus /></el-icon>
-            {{ loading ? '正在抓取...' : '添加文章' }}
-          </el-button>
-          <el-button @click="handleReset" :disabled="loading" size="large">
-            重置
+          <el-button type="primary" @click="handleSubmit" :loading="loading" size="large">
+            {{ loading ? statusText : '添加文章' }}
           </el-button>
         </el-form-item>
       </el-form>
 
-      <!-- 进度提示 -->
-      <el-alert
-        v-if="loading"
-        title="正在处理"
-        type="info"
-        :closable="false"
-        class="progress-alert"
-      >
-        <template #default>
-          <div class="progress-steps">
-            <div class="step" :class="{ active: step >= 1 }">
-              <el-icon><Loading /></el-icon>
-              <span>抓取文章</span>
-            </div>
-            <div class="step" :class="{ active: step >= 2 }">
-              <el-icon><Document /></el-icon>
-              <span>保存数据</span>
-            </div>
-            <div class="step" :class="{ active: step >= 3 && form.autoAnalyze }">
-              <el-icon><MagicStick /></el-icon>
-              <span>AI 分析</span>
-            </div>
+      <!-- 结果 -->
+      <el-result v-if="result" icon="success" title="添加成功">
+        <template #sub-title>
+          <div style="text-align:left;max-width:500px;margin:0 auto">
+            <p>标题：{{ result.title }}</p>
+            <p>内容长度：{{ result.content_length }} 字</p>
+            <p v-if="result.article_type">类型：{{ typeLabel(result.article_type) }}</p>
+            <p v-if="result.labels?.length">标签：
+              <el-tag v-for="l in result.labels" :key="l" size="small" style="margin:2px">{{ l }}</el-tag>
+            </p>
+            <p v-if="result.papers_count">提取论文：{{ result.papers_count }} 篇</p>
+            <p v-if="result.datasets_count">提取数据集：{{ result.datasets_count }} 个</p>
+            <p v-if="result.analysis_status === 'failed'" style="color:#f56c6c">
+              AI 分析失败：{{ result.analysis_error }}
+            </p>
           </div>
         </template>
-      </el-alert>
-
-      <!-- 成功提示 -->
-      <el-result
-        v-if="successArticle"
-        icon="success"
-        title="添加成功！"
-        :sub-title="`文章《${successArticle.title}》已成功添加`"
-        class="success-result"
-      >
         <template #extra>
-          <el-button type="primary" @click="viewArticle">查看文章</el-button>
-          <el-button @click="addAnother">继续添加</el-button>
+          <el-button type="primary" @click="$router.push(`/articles/${result.id}`)">查看详情</el-button>
+          <el-button @click="reset">继续添加</el-button>
         </template>
       </el-result>
     </el-card>
 
-    <!-- 最近添加的文章 -->
-    <el-card v-if="recentArticles.length > 0" class="recent-articles-card">
-      <template #header>
-        <h3>📚 最近添加</h3>
-      </template>
-      <el-timeline>
-        <el-timeline-item
-          v-for="article in recentArticles"
-          :key="article.id"
-          :timestamp="formatTime(article.created_at)"
-          placement="top"
-        >
-          <el-card class="article-item" @click="goToArticle(article.id)">
-            <div class="article-info">
-              <h4>{{ article.title }}</h4>
-              <div class="article-meta">
-                <el-tag v-if="article.category" size="small">
-                  {{ article.category }}
-                </el-tag>
-                <span class="author" v-if="article.author">
-                  {{ article.author }}
-                </span>
-              </div>
-            </div>
-          </el-card>
-        </el-timeline-item>
-      </el-timeline>
+    <!-- 最近添加 -->
+    <el-card v-if="recentArticles.length" style="margin-top:16px">
+      <template #header><span>📚 最近添加</span></template>
+      <el-table :data="recentArticles" @row-click="(row: any) => $router.push(`/articles/${row.id}`)" style="cursor:pointer">
+        <el-table-column prop="title" label="标题" show-overflow-tooltip />
+        <el-table-column label="类型" width="100" align="center">
+          <template #default="{ row }">
+            <el-tag v-if="row.article_type" size="small" :type="typeTagColor(row.article_type)">
+              {{ typeLabel(row.article_type) }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="标签" min-width="200">
+          <template #default="{ row }">
+            <el-tag v-for="l in (row.labels || []).slice(0, 3)" :key="l" size="small" style="margin:2px">{{ l }}</el-tag>
+          </template>
+        </el-table-column>
+      </el-table>
     </el-card>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
-import { ElMessage, ElNotification } from 'element-plus'
-import { Link, Plus, Loading, Document, MagicStick } from '@element-plus/icons-vue'
+import { ElMessage } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
-import axios from 'axios'
+import client from '../api/client'
 
-const router = useRouter()
 const formRef = ref<FormInstance>()
 const loading = ref(false)
-const step = ref(0)
-const successArticle = ref<any>(null)
+const statusText = ref('处理中...')
+const result = ref<any>(null)
 const recentArticles = ref<any[]>([])
 
-const form = reactive({
-  url: '',
-  autoAnalyze: true
-})
+const form = reactive({ url: '', autoAnalyze: true })
 
 const rules: FormRules = {
   url: [
     { required: true, message: '请输入文章链接', trigger: 'blur' },
-    {
-      pattern: /^https?:\/\/mp\.weixin\.qq\.com\/s\/.+$/,
-      message: '请输入有效的微信公众号文章链接',
-      trigger: 'blur'
-    }
+    { pattern: /^https?:\/\/mp\.weixin\.qq\.com\//, message: '请输入微信公众号文章链接', trigger: 'blur' }
   ]
 }
 
+const typeLabel = (t: string) => ({
+  paper_review: '论文解读', dataset: '数据集', tool: '工具',
+  tutorial: '教程', news: '资讯', other: '其他'
+}[t] || t)
+
+const typeTagColor = (t: string) => ({
+  paper_review: 'danger', dataset: 'warning', tool: '',
+  tutorial: 'success', news: 'info', other: 'info'
+}[t] || 'info')
+
 const handleSubmit = async () => {
   if (!formRef.value) return
-
   await formRef.value.validate(async (valid) => {
     if (!valid) return
-
     loading.value = true
-    step.value = 1
-    successArticle.value = null
+    result.value = null
+    statusText.value = '正在从 WeWe-RSS 获取文章...'
 
     try {
-      // 抓取文章
-      const response = await axios.post('/api/articles/scrape', {
+      const resp = await client.post('/articles/add', {
         url: form.url,
         auto_analyze: form.autoAnalyze
       })
-
-      step.value = 2
-      await new Promise(resolve => setTimeout(resolve, 500))
-
-      if (form.autoAnalyze) {
-        step.value = 3
-        await new Promise(resolve => setTimeout(resolve, 500))
-      }
-
-      successArticle.value = response.data
-
-      ElNotification({
-        title: '添加成功',
-        message: `文章《${response.data.title}》已成功添加`,
-        type: 'success',
-        duration: 3000
-      })
-
-      // 刷新最近文章列表
-      await fetchRecentArticles()
-    } catch (error: any) {
-      console.error('添加文章失败:', error)
-      ElMessage.error(
-        error.response?.data?.detail || '添加文章失败，请检查链接是否正确'
-      )
+      result.value = resp.data
+      ElMessage.success('添加成功')
+      fetchRecent()
+    } catch (err: any) {
+      const msg = err.response?.data?.detail || '添加失败'
+      ElMessage.error(msg)
     } finally {
       loading.value = false
-      step.value = 0
     }
   })
 }
 
-const handleReset = () => {
+const reset = () => {
+  form.url = ''
+  result.value = null
   formRef.value?.resetFields()
-  successArticle.value = null
 }
 
-const addAnother = () => {
-  handleReset()
-}
-
-const viewArticle = () => {
-  if (successArticle.value) {
-    router.push(`/articles/${successArticle.value.id}`)
-  }
-}
-
-const goToArticle = (id: number) => {
-  router.push(`/articles/${id}`)
-}
-
-const fetchRecentArticles = async () => {
+const fetchRecent = async () => {
   try {
-    const response = await axios.get('/api/articles/', {
-      params: { limit: 5 }
-    })
-    recentArticles.value = response.data.items || []
-  } catch (error) {
-    console.error('获取最近文章失败:', error)
-  }
+    const resp = await client.get('/articles/', { params: { limit: 5 } })
+    recentArticles.value = resp.data.items || []
+  } catch (e) { /* ignore */ }
 }
 
-const formatTime = (time: string) => {
-  if (!time) return ''
-  const date = new Date(time)
-  const now = new Date()
-  const diff = now.getTime() - date.getTime()
-  const minutes = Math.floor(diff / 60000)
-  const hours = Math.floor(diff / 3600000)
-  const days = Math.floor(diff / 86400000)
-
-  if (minutes < 1) return '刚刚'
-  if (minutes < 60) return `${minutes} 分钟前`
-  if (hours < 24) return `${hours} 小时前`
-  if (days < 7) return `${days} 天前`
-  return date.toLocaleDateString()
-}
-
-onMounted(() => {
-  fetchRecentArticles()
-})
+onMounted(fetchRecent)
 </script>
 
 <style scoped>
-.add-article-container {
-  max-width: 800px;
-  margin: 0 auto;
-  padding: 20px;
-}
-
-.add-article-card {
-  margin-bottom: 20px;
-}
-
-.card-header {
-  text-align: center;
-}
-
-.card-header h2 {
-  margin: 0 0 10px 0;
-  font-size: 24px;
-  color: #303133;
-}
-
-.subtitle {
-  margin: 0;
-  color: #909399;
-  font-size: 14px;
-}
-
-.form-tip {
-  margin-top: 5px;
-  font-size: 12px;
-  color: #909399;
-}
-
-.progress-alert {
-  margin-top: 20px;
-}
-
-.progress-steps {
-  display: flex;
-  justify-content: space-around;
-  margin-top: 10px;
-}
-
-.step {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 5px;
-  opacity: 0.3;
-  transition: opacity 0.3s;
-}
-
-.step.active {
-  opacity: 1;
-}
-
-.step .el-icon {
-  font-size: 24px;
-}
-
-.success-result {
-  margin-top: 20px;
-}
-
-.recent-articles-card {
-  margin-top: 20px;
-}
-
-.article-item {
-  cursor: pointer;
-  transition: all 0.3s;
-}
-
-.article-item:hover {
-  box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
-  transform: translateY(-2px);
-}
-
-.article-info h4 {
-  margin: 0 0 10px 0;
-  font-size: 16px;
-  color: #303133;
-}
-
-.article-meta {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 12px;
-  color: #909399;
-}
-
-.author {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-}
+.add-article { max-width: 800px; margin: 0 auto; }
 </style>
