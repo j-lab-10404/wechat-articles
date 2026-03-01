@@ -115,14 +115,45 @@ const handleSubmit = async () => {
     if (!valid) return
     loading.value = true
     result.value = null
-    statusText.value = '正在从 WeWe-RSS 获取文章...'
+    statusText.value = '正在添加文章...'
 
     try {
+      // Step 1: Add article
       const resp = await client.post('/articles/add', {
         url: form.url,
         auto_analyze: form.autoAnalyze
       })
-      result.value = resp.data
+      let data = resp.data
+
+      // Step 2: If content not fetched, retry
+      if (data.need_fetch && data.id) {
+        statusText.value = '正在从 WeWe-RSS 获取内容...'
+        try {
+          const fetchResp = await client.post(`/articles/${data.id}/fetch-content`)
+          data.title = fetchResp.data.title
+          data.content_length = fetchResp.data.content_length
+          data.need_fetch = false
+
+          // Step 3: Analyze if content was fetched
+          if (form.autoAnalyze && data.content_length > 0) {
+            statusText.value = '正在 AI 分析...'
+            try {
+              const analyzeResp = await client.post(`/articles/${data.id}/analyze`)
+              data.analysis_status = 'completed'
+              data.article_type = analyzeResp.data.article_type
+              data.labels = analyzeResp.data.labels
+              data.summary = analyzeResp.data.summary
+            } catch (e) {
+              data.analysis_status = 'failed'
+            }
+          }
+        } catch (e) {
+          // Content fetch failed, article saved without content
+          data.analysis_error = '内容获取失败，请稍后在详情页重试'
+        }
+      }
+
+      result.value = data
       ElMessage.success('添加成功')
       fetchRecent()
     } catch (err: any) {

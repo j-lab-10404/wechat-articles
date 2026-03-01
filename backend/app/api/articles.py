@@ -90,56 +90,37 @@ async def delete_article(article_id: int, db: Session = Depends(get_db)):
 @router.post("/add")
 async def add_article(request: AddArticleRequest, db: Session = Depends(get_db)):
     """
-    用户分享文章链接 → 从 WeWe-RSS 获取全文 → AI 分析 → 入库.
-
-    流程：
-    1. 检查是否已添加过
-    2. 从 WeWe-RSS 获取文章全文
-    3. 保存文章
-    4. AI 分析（分类、标签、论文/数据集提取）
-    5. 保存分析结果
+    添加文章：先保存 URL，然后尝试获取内容和 AI 分析。
+    如果内容获取超时，返回文章 ID，前端可调用 /fetch-content 重试。
     """
     url = request.url.strip()
 
-    # 1. 检查重复
     existing = db.query(Article).filter(Article.url == url).first()
     if existing:
         raise HTTPException(status_code=400, detail="文章已存在")
 
-    # 2. 从 WeWe-RSS 获取全文
+    # 尝试从 WeWe-RSS 获取内容
     rss = RSSService()
-    article_data = await rss.get_article_content(url)
+    article_data = None
+    try:
+        article_data = await rss.get_article_content(url)
+    except Exception as e:
+        print(f"Content fetch failed: {e}")
 
-    if not article_data or not article_data.get("content_text"):
-        # WeWe-RSS 中没找到，可能公众号还没订阅
-        # 尝试添加订阅
-        try:
-            await rss.add_feed(url)
-            import asyncio
-            await asyncio.sleep(5)
-            article_data = await rss.get_article_content(url)
-        except Exception as e:
-            print(f"Auto-subscribe failed: {e}")
-
-    # 如果仍然没有纯文本但有 HTML，尝试提取
-    if article_data and not article_data.get("content_text") and article_data.get("content_html"):
-        article_data["content_text"] = RSSService._html_to_text(article_data["content_html"])
-
-    # 3. 保存文章
-    title = (article_data or {}).get("title", "未知标题")
+    title = (article_data or {}).get("title", "")
     content_html = (article_data or {}).get("content_html", "")
     content_text = (article_data or {}).get("content_text", "")
     author = (article_data or {}).get("author", "")
     published_at = (article_data or {}).get("published_at")
 
     db_article = Article(
-        title=title,
+        title=title or "待获取",
         content=content_html,
         content_text=content_text,
         url=url,
         author=author,
         published_at=published_at,
-        is_favorite=True,  # 用户主动分享的，默认收藏
+        is_favorite=True,
         labels=[],
     )
     db.add(db_article)
@@ -152,88 +133,118 @@ async def add_article(request: AddArticleRequest, db: Session = Depends(get_db))
         "url": db_article.url,
         "content_length": len(content_text),
         "analysis_status": "skipped",
+        "need_fetch": not bool(content_text),
     }
 
-    # 4. AI 分析
+    # AI 分析（仅在有内容时）
     if request.auto_analyze and content_text:
-        try:
-            ai = AIService()
-            analysis = await ai.analyze_article(title, content_text)
+        result.update(await _do_analysis(db, db_article, content_text))
 
-            # 更新文章字段
-            db_article.article_type = analysis.get("article_type", "other")
-            db_article.summary = analysis.get("summary", "")
-            db_article.keywords = analysis.get("keywords", [])
-            db_article.labels = analysis.get("labels", [])
-            db_article.ai_labels = analysis.get("labels", [])
+    return result
 
-            # 保存 ArticleAnalysis
-            db_analysis = ArticleAnalysis(
-                article_id=db_article.id,
-                summary=analysis.get("summary"),
-                keywords=analysis.get("keywords"),
-                category_confidence=0.0,
-                paper_info=analysis.get("papers"),
-                tool_info=None,
-                news_info=None,
+
+@router.post("/{article_id}/fetch-content")
+async def fetch_content(article_id: int, db: Session = Depends(get_db)):
+    """从 WeWe-RSS 获取文章内容（用于重试）."""
+    article = db.query(Article).filter(Article.id == article_id).first()
+    if not article:
+        raise HTTPException(status_code=404, detail="Article not found")
+
+    rss = RSSService()
+    article_data = await rss.get_article_content(article.url)
+
+    if not article_data or not article_data.get("content_text"):
+        raise HTTPException(status_code=404, detail="WeWe-RSS 中未找到文章内容")
+
+    article.title = article_data.get("title") or article.title
+    article.content = article_data.get("content_html", "")
+    article.content_text = article_data.get("content_text", "")
+    article.author = article_data.get("author") or article.author
+    article.published_at = article_data.get("published_at") or article.published_at
+    db.commit()
+    db.refresh(article)
+
+    return {
+        "id": article.id,
+        "title": article.title,
+        "content_length": len(article.content_text or ""),
+    }
+
+
+async def _do_analysis(db: Session, db_article: Article, content_text: str) -> dict:
+    """执行 AI 分析并保存结果."""
+    result = {}
+    try:
+        ai = AIService()
+        analysis = await ai.analyze_article(db_article.title, content_text)
+
+        db_article.article_type = analysis.get("article_type", "other")
+        db_article.summary = analysis.get("summary", "")
+        db_article.keywords = analysis.get("keywords", [])
+        db_article.labels = analysis.get("labels", [])
+        db_article.ai_labels = analysis.get("labels", [])
+
+        db_analysis = ArticleAnalysis(
+            article_id=db_article.id,
+            summary=analysis.get("summary"),
+            keywords=analysis.get("keywords"),
+            category_confidence=0.0,
+            paper_info=analysis.get("papers"),
+        )
+        db.add(db_analysis)
+
+        for p in analysis.get("papers", []):
+            paper = Paper(
+                source_article_id=db_article.id,
+                title=p.get("title", "Unknown"),
+                title_cn=p.get("title_cn"),
+                authors=p.get("authors", []),
+                journal=p.get("journal"),
+                year=p.get("year"),
+                doi=p.get("doi"),
+                arxiv_id=p.get("arxiv_id"),
+                abstract=p.get("abstract"),
+                main_findings=p.get("main_findings"),
             )
-            db.add(db_analysis)
+            if p.get("arxiv_id"):
+                paper.pdf_url = f"https://arxiv.org/pdf/{p['arxiv_id']}"
+                paper.source_url = f"https://arxiv.org/abs/{p['arxiv_id']}"
+            elif p.get("doi"):
+                paper.source_url = f"https://doi.org/{p['doi']}"
+                paper.pdf_url = f"https://sci-hub.se/{p['doi']}"
+            db.add(paper)
 
-            # 5. 保存论文信息
-            for p in analysis.get("papers", []):
-                paper = Paper(
-                    source_article_id=db_article.id,
-                    title=p.get("title", "Unknown"),
-                    title_cn=p.get("title_cn"),
-                    authors=p.get("authors", []),
-                    journal=p.get("journal"),
-                    year=p.get("year"),
-                    doi=p.get("doi"),
-                    arxiv_id=p.get("arxiv_id"),
-                    abstract=p.get("abstract"),
-                    main_findings=p.get("main_findings"),
-                )
-                # 尝试构建 PDF 链接
-                if p.get("arxiv_id"):
-                    paper.pdf_url = f"https://arxiv.org/pdf/{p['arxiv_id']}"
-                    paper.source_url = f"https://arxiv.org/abs/{p['arxiv_id']}"
-                elif p.get("doi"):
-                    paper.source_url = f"https://doi.org/{p['doi']}"
-                    paper.pdf_url = f"https://sci-hub.se/{p['doi']}"
-                db.add(paper)
+        for d in analysis.get("datasets", []):
+            dataset = Dataset(
+                source_article_id=db_article.id,
+                name=d.get("name", "Unknown"),
+                description=d.get("description"),
+                data_type=d.get("data_type"),
+                scale=d.get("scale"),
+                domain=d.get("domain"),
+                download_url=d.get("download_url"),
+                access_method=d.get("access_method"),
+                tutorial=d.get("tutorial"),
+                related_papers=d.get("related_papers", []),
+            )
+            db.add(dataset)
 
-            # 6. 保存数据集信息
-            for d in analysis.get("datasets", []):
-                dataset = Dataset(
-                    source_article_id=db_article.id,
-                    name=d.get("name", "Unknown"),
-                    description=d.get("description"),
-                    data_type=d.get("data_type"),
-                    scale=d.get("scale"),
-                    domain=d.get("domain"),
-                    download_url=d.get("download_url"),
-                    access_method=d.get("access_method"),
-                    tutorial=d.get("tutorial"),
-                    related_papers=d.get("related_papers", []),
-                )
-                db.add(dataset)
+        db.commit()
+        db.refresh(db_article)
 
-            db.commit()
-            db.refresh(db_article)
+        result["analysis_status"] = "completed"
+        result["article_type"] = db_article.article_type
+        result["labels"] = db_article.labels
+        result["summary"] = db_article.summary
+        result["papers_count"] = len(analysis.get("papers", []))
+        result["datasets_count"] = len(analysis.get("datasets", []))
 
-            result["analysis_status"] = "completed"
-            result["article_type"] = db_article.article_type
-            result["labels"] = db_article.labels
-            result["summary"] = db_article.summary
-            result["papers_count"] = len(analysis.get("papers", []))
-            result["datasets_count"] = len(analysis.get("datasets", []))
-
-        except Exception as e:
-            print(f"AI analysis failed: {e}")
-            import traceback
-            traceback.print_exc()
-            result["analysis_status"] = "failed"
-            result["analysis_error"] = str(e)
+    except Exception as e:
+        print(f"AI analysis failed: {e}")
+        import traceback
+        traceback.print_exc()
+        result["analysis_status"] = "failed"
+        result["analysis_error"] = str(e)
 
     return result
 

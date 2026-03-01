@@ -3,6 +3,7 @@ import httpx
 import re
 from typing import List, Dict, Optional
 from datetime import datetime
+from urllib.parse import urlparse, parse_qs, urlencode
 from ..config import settings
 
 
@@ -21,7 +22,7 @@ class RSSService:
 
     @staticmethod
     def _html_to_text(html: str) -> str:
-        """Extract plain text from HTML."""
+        """Extract plain text from WeChat article HTML."""
         if not html:
             return ""
         try:
@@ -29,26 +30,27 @@ class RSSService:
             soup = BeautifulSoup(html, "html.parser")
             for tag in soup(["script", "style", "noscript"]):
                 tag.decompose()
-            content_div = soup.find(id="js_content")
-            if not content_div:
-                content_div = soup.find(class_="rich_media_content")
-            if content_div:
-                text = content_div.get_text(separator="\n", strip=True)
-            else:
-                text = soup.get_text(separator="\n", strip=True)
-            text = re.sub(r'\n{3,}', '\n\n', text)
-            return text.strip()
+            div = soup.find(id="js_content")
+            if not div:
+                div = soup.find(class_="rich_media_content")
+            text = div.get_text("\n", strip=True) if div else soup.get_text("\n", strip=True)
+            return re.sub(r'\n{3,}', '\n\n', text).strip()
         except Exception:
-            text = re.sub(r'<[^>]+>', ' ', html)
-            text = re.sub(r'\s+', ' ', text)
-            return text.strip()
+            return re.sub(r'\s+', ' ', re.sub(r'<[^>]+>', ' ', html)).strip()
+
+    @staticmethod
+    def _get_biz(url: str) -> str:
+        """Extract __biz param from WeChat URL."""
+        try:
+            return parse_qs(urlparse(url).query).get("__biz", [""])[0]
+        except Exception:
+            return ""
 
     @staticmethod
     def _normalize_url(url: str) -> str:
-        """Normalize WeChat article URL."""
+        """Normalize WeChat URL for matching."""
         if not url:
             return ""
-        from urllib.parse import urlparse, parse_qs, urlencode
         try:
             parsed = urlparse(url)
             params = parse_qs(parsed.query)
@@ -63,19 +65,15 @@ class RSSService:
         return url.split("#")[0]
 
     async def get_feeds(self) -> List[Dict]:
-        """Get all subscribed feeds."""
-        async with httpx.AsyncClient(timeout=30) as client:
+        """Get subscribed feeds from WeWe-RSS."""
+        async with httpx.AsyncClient(timeout=15) as client:
             resp = await client.get(f"{self.base_url}/feeds")
             resp.raise_for_status()
             data = resp.json()
-            if isinstance(data, list):
-                return data
-            if isinstance(data, dict) and "data" in data:
-                return data["data"]
-            return []
+            return data if isinstance(data, list) else data.get("data", [])
 
     async def add_feed(self, mp_url: str) -> Dict:
-        """Add a feed via article URL."""
+        """Subscribe to a feed via article URL."""
         async with httpx.AsyncClient(timeout=30) as client:
             resp = await client.post(
                 f"{self.base_url}/feeds",
@@ -85,58 +83,89 @@ class RSSService:
             resp.raise_for_status()
             return resp.json()
 
+    async def _find_feed_for_url(self, article_url: str) -> Optional[str]:
+        """Find which feed contains the article by matching __biz."""
+        target_biz = self._get_biz(article_url)
+        if not target_biz:
+            return None
+        feeds = await self.get_feeds()
+        for feed in feeds:
+            mp_url = feed.get("mpUrl", "") or ""
+            feed_biz = self._get_biz(mp_url)
+            if feed_biz and feed_biz == target_biz:
+                return feed.get("id")
+        return None
+
     async def get_article_content(self, article_url: str) -> Optional[Dict]:
         """
-        Fetch article content from WeWe-RSS by searching each feed.
+        Fetch article content from WeWe-RSS.
+        
+        Strategy: find the specific feed first, then search only that feed.
+        This avoids downloading all feeds (each ~3MB per article).
         """
-        normalized_target = self._normalize_url(article_url)
+        normalized = self._normalize_url(article_url)
+        
         try:
+            # Step 1: find which feed this article belongs to
+            feed_id = await self._find_feed_for_url(article_url)
+            
+            if feed_id:
+                print(f"[RSS] Found feed {feed_id} for article")
+                result = await self._search_feed(feed_id, article_url, normalized)
+                if result:
+                    return result
+            
+            # Step 2: if not found by biz, search all feeds one by one
+            print("[RSS] Biz match failed, searching all feeds...")
             feeds = await self.get_feeds()
-            print(f"[RSS] {len(feeds)} feeds, looking for: {article_url[:80]}")
-
             for feed in feeds:
-                feed_id = feed.get("id", "")
-                feed_name = feed.get("name", "?")
-                if not feed_id:
-                    continue
-                try:
-                    feed_url = f"{self.base_url}/feeds/{feed_id}.json?limit=30"
-                    print(f"[RSS] Checking feed: {feed_name}")
-                    async with httpx.AsyncClient(timeout=180) as client:
-                        resp = await client.get(feed_url)
-                        if resp.status_code != 200:
-                            continue
-                        data = resp.json()
-                    for item in data.get("items", []):
-                        item_url = item.get("url", "")
-                        item_norm = self._normalize_url(item_url)
-                        if item_url == article_url or item_norm == normalized_target:
-                            html = item.get("content_html", "")
-                            text = item.get("content_text", "")
-                            if not text and html:
-                                text = self._html_to_text(html)
-                            author_raw = item.get("author", "")
-                            if isinstance(author_raw, dict):
-                                author = author_raw.get("name", "")
-                            else:
-                                author = str(author_raw or "")
-                            print(f"[RSS] Found: {item.get('title','?')}, {len(text)} chars")
-                            return {
-                                "title": item.get("title", ""),
-                                "url": item_url,
-                                "content_html": html,
-                                "content_text": text,
-                                "published_at": self._parse_date(item.get("date_published")),
-                                "author": author,
-                            }
-                except Exception as e:
-                    print(f"[RSS] Feed {feed_name} error: {e}")
-                    continue
+                fid = feed.get("id", "")
+                if fid and fid != feed_id:  # skip already-searched feed
+                    result = await self._search_feed(fid, article_url, normalized)
+                    if result:
+                        return result
+                        
         except Exception as e:
             print(f"[RSS] Error: {e}")
             import traceback
             traceback.print_exc()
+        
         print(f"[RSS] Not found: {article_url[:80]}")
+        return None
+
+    async def _search_feed(self, feed_id: str, target_url: str, target_norm: str) -> Optional[Dict]:
+        """Search a single feed for the target article."""
+        try:
+            url = f"{self.base_url}/feeds/{feed_id}.json?limit=50"
+            async with httpx.AsyncClient(timeout=120) as client:
+                resp = await client.get(url)
+                if resp.status_code != 200:
+                    return None
+                data = resp.json()
+            
+            for item in data.get("items", []):
+                item_url = item.get("url", "")
+                if item_url == target_url or self._normalize_url(item_url) == target_norm:
+                    html = item.get("content_html", "")
+                    text = item.get("content_text", "")
+                    if not text and html:
+                        text = self._html_to_text(html)
+                    
+                    author = item.get("author", "")
+                    if isinstance(author, dict):
+                        author = author.get("name", "")
+                    
+                    print(f"[RSS] Found: {item.get('title','?')}, {len(text)} chars")
+                    return {
+                        "title": item.get("title", ""),
+                        "url": item_url,
+                        "content_html": html,
+                        "content_text": text,
+                        "published_at": self._parse_date(item.get("date_published")),
+                        "author": str(author or ""),
+                    }
+        except Exception as e:
+            print(f"[RSS] Feed {feed_id} error: {e}")
         return None
 
     async def check_feed_exists(self, mp_url: str) -> Optional[Dict]:
@@ -146,25 +175,11 @@ class RSSService:
             for feed in feeds:
                 if isinstance(feed, dict):
                     feed_url = feed.get("mpUrl", "") or feed.get("url", "")
-                    if feed_url and self._same_account(feed_url, mp_url):
+                    if feed_url and self._get_biz(feed_url) == self._get_biz(mp_url):
                         return feed
         except Exception as e:
             print(f"Error checking feed: {e}")
         return None
-
-    @staticmethod
-    def _same_account(url1: str, url2: str) -> bool:
-        from urllib.parse import urlparse, parse_qs
-        try:
-            q1 = parse_qs(urlparse(url1).query)
-            q2 = parse_qs(urlparse(url2).query)
-            biz1 = q1.get("__biz", [""])[0]
-            biz2 = q2.get("__biz", [""])[0]
-            if biz1 and biz2:
-                return biz1 == biz2
-        except Exception:
-            pass
-        return False
 
     @staticmethod
     def _parse_date(date_str: Optional[str]) -> Optional[datetime]:

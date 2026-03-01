@@ -6,7 +6,12 @@
         <el-button @click="toggleFavorite" :type="article?.is_favorite ? 'warning' : 'default'">
           {{ article?.is_favorite ? '★ 已收藏' : '☆ 收藏' }}
         </el-button>
-        <el-button type="primary" @click="reAnalyze" :loading="analyzing">重新分析</el-button>
+        <el-button v-if="!article?.content_text" type="warning" @click="fetchContent" :loading="fetching">
+          获取内容
+        </el-button>
+        <el-button type="primary" @click="reAnalyze" :loading="analyzing" :disabled="!article?.content_text">
+          {{ article?.content_text ? '重新分析' : 'AI 分析（需先获取内容）' }}
+        </el-button>
       </template>
     </el-page-header>
 
@@ -125,6 +130,7 @@ import client from '../api/client'
 const route = useRoute()
 const loading = ref(false)
 const analyzing = ref(false)
+const fetching = ref(false)
 const article = ref<any>(null)
 const showAddLabel = ref(false)
 const newLabel = ref('')
@@ -170,6 +176,19 @@ const reAnalyze = async () => {
     ElMessage.error(e.response?.data?.detail || '分析失败')
   } finally {
     analyzing.value = false
+  }
+}
+
+const fetchContent = async () => {
+  fetching.value = true
+  try {
+    await client.post(`/articles/${article.value.id}/fetch-content`)
+    ElMessage.success('内容获取成功')
+    loadArticle()
+  } catch (e: any) {
+    ElMessage.error(e.response?.data?.detail || '内容获取失败')
+  } finally {
+    fetching.value = false
   }
 }
 
