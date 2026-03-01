@@ -65,13 +65,62 @@ async def get_all_labels(db: Session = Depends(get_db)):
     return [{"label": row[0], "count": row[1]} for row in result]
 
 
-@router.get("/{article_id}", response_model=schemas.ArticleDetail)
+@router.get("/{article_id}")
 async def get_article(article_id: int, db: Session = Depends(get_db)):
     """获取文章详情（含分析、论文、数据集）."""
     article = db.query(Article).filter(Article.id == article_id).first()
     if not article:
         raise HTTPException(status_code=404, detail="Article not found")
-    return article
+
+    # Manual serialization to avoid Pydantic issues with relationships
+    result = {
+        "id": article.id,
+        "title": article.title,
+        "url": article.url,
+        "author": article.author,
+        "published_at": article.published_at.isoformat() if article.published_at else None,
+        "article_type": article.article_type,
+        "summary": article.summary,
+        "labels": article.labels or [],
+        "keywords": article.keywords or [],
+        "ai_labels": article.ai_labels or [],
+        "is_favorite": article.is_favorite or False,
+        "content": article.content,
+        "content_text": article.content_text,
+        "created_at": article.created_at.isoformat() if article.created_at else None,
+        "updated_at": article.updated_at.isoformat() if article.updated_at else None,
+        "papers": [],
+        "datasets": [],
+        "analysis": None,
+    }
+
+    if article.papers:
+        for p in article.papers:
+            result["papers"].append({
+                "id": p.id, "title": p.title, "title_cn": p.title_cn,
+                "authors": p.authors or [], "journal": p.journal,
+                "year": p.year, "doi": p.doi, "arxiv_id": p.arxiv_id,
+                "abstract": p.abstract, "main_findings": p.main_findings,
+                "pdf_url": p.pdf_url, "source_url": p.source_url,
+            })
+
+    if article.datasets:
+        for d in article.datasets:
+            result["datasets"].append({
+                "id": d.id, "name": d.name, "description": d.description,
+                "data_type": d.data_type, "scale": d.scale, "domain": d.domain,
+                "download_url": d.download_url, "access_method": d.access_method,
+                "tutorial": d.tutorial, "related_papers": d.related_papers or [],
+            })
+
+    if article.analysis:
+        a = article.analysis
+        result["analysis"] = {
+            "id": a.id, "summary": a.summary, "keywords": a.keywords,
+            "category_confidence": a.category_confidence,
+        }
+
+    return result
 
 
 @router.delete("/{article_id}")
