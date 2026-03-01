@@ -4,8 +4,54 @@ from typing import Optional, Any
 from datetime import datetime
 
 
+class PaperSchema(BaseModel):
+    id: int
+    title: str
+    title_cn: Optional[str] = None
+    authors: Optional[list[str]] = []
+    journal: Optional[str] = None
+    year: Optional[int] = None
+    doi: Optional[str] = None
+    arxiv_id: Optional[str] = None
+    pubmed_id: Optional[str] = None
+    abstract: Optional[str] = None
+    main_findings: Optional[str] = None
+    pdf_url: Optional[str] = None
+    source_url: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class DatasetSchema(BaseModel):
+    id: int
+    name: str
+    description: Optional[str] = None
+    data_type: Optional[str] = None
+    scale: Optional[str] = None
+    domain: Optional[str] = None
+    license: Optional[str] = None
+    download_url: Optional[str] = None
+    access_method: Optional[str] = None
+    tutorial: Optional[str] = None
+    related_papers: Optional[list[str]] = []
+    created_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AnalysisSchema(BaseModel):
+    id: int
+    summary: Optional[str] = None
+    keywords: Optional[list[str]] = []
+    category_confidence: Optional[float] = None
+    paper_info: Optional[Any] = None
+    created_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class ArticleBase(BaseModel):
-    """Base article schema."""
     title: str
     url: Optional[str] = None
     author: Optional[str] = None
@@ -17,14 +63,12 @@ class ArticleBase(BaseModel):
 
 
 class ArticleCreate(ArticleBase):
-    """Schema for creating article."""
     content: Optional[str] = None
     content_text: Optional[str] = None
     account_id: Optional[int] = None
 
 
 class ArticleUpdate(BaseModel):
-    """Schema for updating article."""
     title: Optional[str] = None
     is_favorite: Optional[bool] = None
     labels: Optional[list[str]] = None
@@ -32,7 +76,6 @@ class ArticleUpdate(BaseModel):
 
 
 class Article(ArticleBase):
-    """Schema for article response."""
     id: int
     account_id: Optional[int] = None
     is_favorite: bool = False
@@ -44,18 +87,16 @@ class Article(ArticleBase):
 
 
 class ArticleDetail(Article):
-    """Schema for article detail with analysis, papers, datasets."""
     content: Optional[str] = None
     content_text: Optional[str] = None
     ai_labels: Optional[list[str]] = []
-    analysis: Optional[Any] = None
-    papers: Optional[list[Any]] = []
-    datasets: Optional[list[Any]] = []
+    analysis: Optional[AnalysisSchema] = None
+    papers: Optional[list[PaperSchema]] = []
+    datasets: Optional[list[DatasetSchema]] = []
 
     model_config = ConfigDict(from_attributes=True)
 
 
 class ArticleList(BaseModel):
-    """Schema for article list response."""
     total: int
     items: list[Article]
